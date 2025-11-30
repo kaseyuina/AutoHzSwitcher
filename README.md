@@ -1,0 +1,2 @@
+# AutoHzSwitcher
+ Auto-RefreshRate-Switcher
