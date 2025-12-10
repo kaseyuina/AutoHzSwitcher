@@ -1,11 +1,10 @@
 import time
-import subprocess
+# import subprocess  # <-- この行を削除
 import json
 import os
-# --- 修正点: Optionalを使うために typing からインポート ---
 from typing import Optional 
-# --------------------------------------------------------
 from switcher_utility import change_rate
+import psutil # <-- この行があることを確認
 
 # --- 1. 設定値 ---
 CONFIG_FILE = "config.json"
@@ -99,41 +98,24 @@ def monitor_and_switch():
 # 新しい is_game_running の代わりのヘルパー関数
 def get_running_game_exe(target_list: list[str]) -> Optional[str]:
     """
-    tasklistを実行し、ターゲットリストに含まれる実行中のプロセス名を返す。
+    psutilを使用して、ターゲットリストに含まれる実行中のプロセス名を返す。
     含まれていない場合は None を返す。
     """
-    command = 'cmd.exe /c tasklist /NH /FO CSV'
     
-    try:
-        result = subprocess.run(
-            command, 
-            capture_output=True, 
-            text=True, 
-            check=True, 
-            shell=True,
-            encoding='shift_jis' 
-        ) 
-        output = result.stdout
-        
-    except subprocess.CalledProcessError:
-        return None # エラー時はプロセスが見つからなかったとして扱う
-        
     target_lower = [name.lower() for name in target_list]
-    
-    for line in output.splitlines():
-        if not line:
-            continue
-            
+
+    # Windowsネイティブ環境では、これで全てのプロセスが取得できる
+    for proc in psutil.process_iter(['name']):
         try:
-            process_name_with_quotes = line.split(',')[0]
-            process_name = process_name_with_quotes.strip('"').lower()
-            
-        except IndexError:
+            # psutil.Process オブジェクトから名前を取得
+            process_name = proc.name() 
+        except psutil.NoSuchProcess:
             continue
             
         # ターゲットリストに含まれているプロセス名を見つけたら、その名前を返す
-        if process_name in target_lower:
-            return process_name # 小文字のEXE名を返す
+        if process_name and process_name.lower() in target_lower:
+            # 見つかったEXE名を返す
+            return process_name 
             
     return None
 

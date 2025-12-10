@@ -1,6 +1,6 @@
 {
     "MonitorSettings": {
-        "TargetMonitorID": "\\\\\\\\.\\\\DISPLAY1",
+        "TargetMonitorID": "\\\\.\\DISPLAY1",
         "ResolutionWidth": 2560,
         "ResolutionHeight": 1440
     },
