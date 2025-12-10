@@ -1,0 +1,29 @@
+{
+    "MonitorSettings": {
+        "TargetMonitorID": "\\\\\\\\.\\\\DISPLAY1",
+        "ResolutionWidth": 2560,
+        "ResolutionHeight": 1440
+    },
+    "DefaultRates": {
+        "IdleRate": 60,
+        "GameRate": 165
+    },
+    "GameProfiles": [
+        {
+            "Name": "Street Fighter 6",
+            "ExeName": "StreetFighter6.exe",
+            "ActiveRate": 165,
+            "ExitRate": 60
+        },
+        {
+            "Name": "Elden Ring",
+            "ExeName": "eldenring.exe",
+            "ActiveRate": 144,
+            "ExitRate": 60
+        }
+    ],
+    "App": {
+        "CheckInterval": 5,
+        "LogFilePath": "auto_hertz_switcher.log"
+    }
+}

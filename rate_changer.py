@@ -4,7 +4,8 @@ import time
 # --- Configuration Settings ---
 # 1. Path to the external command (ResolutionSwitcher.exe)
 # Using relative path (r"...") as the executable is in the same directory.
-SWITCHER_PATH = r"ResolutionSwitcher.exe" 
+#SWITCHER_PATH = r"ResolutionSwitcher.exe" 
+SWITCHER_PATH = r"ResolutionSwitcher" 
 
 # 2. Target Monitor ID 
 # The string requires extreme backslash escaping (8 backslashes total) 
