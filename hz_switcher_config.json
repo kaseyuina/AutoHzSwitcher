@@ -1,0 +1,8 @@
+{
+    "selected_monitor_id": "\\\\.\\DISPLAY2",
+    "high_rate": 144,
+    "low_rate": 60,
+    "target_resolution": "2560x1440",
+    "target_process_name": "game.exe",
+    "is_monitoring_enabled": false
+}
