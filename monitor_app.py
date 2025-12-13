@@ -1,10 +1,9 @@
 import time
-# import subprocess  # <-- この行を削除
 import json
 import os
 from typing import Optional 
 from switcher_utility import change_rate
-import psutil # <-- この行があることを確認
+import psutil 
 
 # --- 1. 設定値 ---
 CONFIG_FILE = "config.json"
@@ -18,84 +17,19 @@ def load_config(file_path):
     with open(file_path, 'r', encoding='utf-8') as f:
         return json.load(f)
 
-# --- 2. 監視ロジック ---
-def monitor_and_switch():
+def save_config(data: dict, file_path: str):
+    """
+    辞書オブジェクトを設定ファイルにJSON形式で書き込みます。
+    """
     try:
-        config = load_config(CONFIG_FILE)
-    except FileNotFoundError as e:
-        print(f"致命的なエラー: {e}")
-        return
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+        return True
+    except Exception as e:
+        print(f"Error saving config: {e}")
+        return False
 
-    # 設定値の抽出
-    monitor_id = config['MonitorSettings']['TargetMonitorID']
-    res_w = config['MonitorSettings']['ResolutionWidth']
-    res_h = config['MonitorSettings']['ResolutionHeight']
-    check_interval = config['App']['CheckInterval']
-    
-    # ターゲットゲームリストを作成
-    target_games_data = config['GameProfiles']
-    
-    # 監視するEXEファイル名リスト (is_game_runningで使用)
-    target_exe_names = [profile['ExeName'] for profile in target_games_data]
-    
-    # ... (以降のロジックを継続)
-    
-    # is_game_running関数内で使用するために、configを渡すか、グローバル変数にする必要があります。
-    # 一旦、この関数内で完結させるロジックに修正します。
-
-    # 初期状態として、LOW_RATEではない状態から始める
-    is_high_rate_active = False 
-    active_game_profile = None # どのゲームが実行中かを保持する変数
-    
-    # ... (初期化のprint文などを修正)
-    print(f"Monitor ID: {monitor_id}")
-    print(f"Target Games: {target_exe_names}")
-    
-    while True:
-        # 現在実行中のゲームプロセスをチェックし、合致するProfileを取得
-        running_exe_name = get_running_game_exe(target_exe_names) 
-
-        if running_exe_name:
-            # ゲームが起動している場合
-            
-            # 現在アクティブなプロファイルを取得 (configから)
-            current_profile = next(
-                (p for p in target_games_data if p['ExeName'].lower() == running_exe_name.lower()), None
-            )
-
-            if not active_game_profile:
-                # 起動したばかりの場合
-                print(f"\n🎮 GAME DETECTED: {current_profile['Name']}. Switching to {current_profile['ActiveRate']}Hz...")
-                
-                success = change_rate(
-                    current_profile['ActiveRate'], res_w, res_h, monitor_id
-                )
-                
-                if success:
-                    active_game_profile = current_profile
-            
-            # else: 別のゲームが実行中の可能性もあるが、ここではシンプルに無視
-            
-        elif active_game_profile:
-            # ゲームが終了した (running_exe_nameがNone) && 以前ゲームが動いていた場合
-            
-            print(f"\n✅ GAME EXIT DETECTED: {active_game_profile['Name']}. Switching back to {active_game_profile['ExitRate']}Hz...")
-            
-            success = change_rate(
-                active_game_profile['ExitRate'], res_w, res_h, monitor_id
-            )
-            
-            if success:
-                active_game_profile = None # プロファイルをリセット
-            
-        else:
-            # 状態変化なし
-            status = "HIGH RATE (Game Running)" if active_game_profile else "LOW RATE (Idle)"
-            print(f". Status: {status}", end='\r') 
-            
-        time.sleep(check_interval)
-
-# 新しい is_game_running の代わりのヘルパー関数
+# --- 2. プロセスチェックヘルパー関数 ---
 def get_running_game_exe(target_list: list[str]) -> Optional[str]:
     """
     psutilを使用して、ターゲットリストに含まれる実行中のプロセス名を返す。
@@ -104,25 +38,104 @@ def get_running_game_exe(target_list: list[str]) -> Optional[str]:
     
     target_lower = [name.lower() for name in target_list]
 
-    # Windowsネイティブ環境では、これで全てのプロセスが取得できる
     for proc in psutil.process_iter(['name']):
         try:
-            # psutil.Process オブジェクトから名前を取得
             process_name = proc.name() 
         except psutil.NoSuchProcess:
             continue
             
-        # ターゲットリストに含まれているプロセス名を見つけたら、その名前を返す
         if process_name and process_name.lower() in target_lower:
-            # 見つかったEXE名を返す
             return process_name 
             
     return None
 
-if __name__ == "__main__":
+# --- 3. コア監視ロジック関数 (GUIスレッド用) ---
+# 🌟 修正点 1: status_sender 引数を追加 🌟
+def monitoring_loop(config: dict, thread_stopper: callable, status_sender: callable):
+    """
+    アプリケーションのコア監視ロジックを実行する (GUIのスレッドから呼び出される)。
+    """
+    
+    # 以前の monitor_and_switch の初期化ロジックをここに統合
+    monitor_id = config['MonitorSettings']['TargetMonitorID']
+    res_w = config['MonitorSettings']['ResolutionWidth']
+    res_h = config['MonitorSettings']['ResolutionHeight']
+    
+    # Rateのデフォルト値はconfigから取得
+    idle_rate = config.get('DefaultRates', {}).get('IdleRate') 
+    # ↑ 辞書.get() を使ってキーがない場合も安全にする
+    game_rate_default = config.get('DefaultRates', {}).get('GameRate') 
+    check_interval = config.get('App', {}).get('CheckInterval')
+   
+    target_games_data = config['GameProfiles']
+    target_exe_names = [profile['ExeName'] for profile in target_games_data]
+    game_profiles_map = {p['ExeName'].lower(): p for p in target_games_data} # 効率的な辞書
+    
+    active_game_profile = None # どのゲームが実行中かを保持
+    current_hz = idle_rate # 現在のモニターレート
+    
+    # 初期レートへの設定（念のため実行）
     try:
-        monitor_and_switch()
-    except KeyboardInterrupt:
-        print("\nMonitoring stopped by user.")
+        change_rate(current_hz, res_w, res_h, monitor_id)
+        print(f"Monitoring started. Current rate assumed: {current_hz}Hz")
     except Exception as e:
-        print(f"\nAn unhandled error occurred: {e}")
+        print(f"Error during initial rate setting: {e}")
+
+    # 監視ループ (thread_stopper()がTrueを返す間実行)
+    while thread_stopper():
+        
+        running_exe_name = get_running_game_exe(target_exe_names) 
+
+        if running_exe_name:
+            # ゲームが起動している場合
+            
+            # 現在アクティブなプロファイルを取得 (configから)
+            current_profile = game_profiles_map.get(running_exe_name.lower())
+
+            if not active_game_profile and current_profile:
+                # 起動したばかりの場合
+                active_rate = current_profile.get('ActiveRate', game_rate_default)
+                
+                print(f"\n🎮 GAME DETECTED: {current_profile['Name']}. Switching to {active_rate}Hz...")
+                
+                success = change_rate(
+                    active_rate, res_w, res_h, monitor_id
+                )
+                
+                if success:
+                    active_game_profile = current_profile
+                    current_hz = active_rate
+                    # 🌟 修正点 2: 状態変更時に通知 🌟
+                    status_sender(f"GAME: {current_profile['Name']} running. Rate set to {current_hz}Hz.")
+            # else: 既にアクティブな状態であれば、何もしない (省電力)
+            
+        elif active_game_profile:
+            # ゲームが終了した (running_exe_nameがNone) && 以前ゲームが動いていた場合
+            
+            exit_rate = active_game_profile.get('ExitRate', idle_rate) # ExitRateを優先
+            
+            print(f"\n✅ GAME EXIT DETECTED: {active_game_profile['Name']}. Switching back to {exit_rate}Hz...")
+            
+            success = change_rate(
+                exit_rate, res_w, res_h, monitor_id
+            )
+            
+            if success:
+                active_game_profile = None # プロファイルをリセット
+                current_hz = exit_rate
+                # 🌟 修正点 3: 状態変更時に通知 🌟
+                status_sender(f"IDLE: Game exited. Rate set to {current_hz}Hz.")
+        # else: 状態変化なし (引き続きアイドルレート)
+        else:
+            # 🌟 修正点 4: 定期的な心臓の鼓動通知（GUIのフリーズ防止用にもなる） 🌟
+            status_sender(f"IDLE: Monitoring... Current rate {current_hz}Hz.")
+            
+        time.sleep(check_interval)
+        
+    print("Monitoring thread stopped.")
+
+# --- 4. 単体実行ブロックの削除 (重要) ---
+# GUIからモジュールとして呼び出すため、このブロックは不要です。
+# if __name__ == "__main__": 
+#    ... (単体実行コードは削除)
+# ----------------------------------------
