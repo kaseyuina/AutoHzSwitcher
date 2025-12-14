@@ -4,6 +4,8 @@ import sys
 import os
 import re
 import json
+import psutil # <- 【新規追加】プロセス情報を取得するためのライブラリ
+# psutilは外部ライブラリのため、別途インストールが必要です (pip install psutil)
 
 # --- Configuration Settings (Constants) ---
 # 相対パスを使用 (動作確認済み)
@@ -24,8 +26,8 @@ def _get_monitor_modes(monitor_id: str) -> dict:
     try:
         result = subprocess.run(
             full_command, 
-            check=False,   
-            shell=True,    
+            check=False,    
+            shell=True,     
             capture_output=True, 
             text=True, 
             encoding='cp932',
@@ -176,12 +178,33 @@ def change_rate(target_rate: int, width: int, height: int, monitor_id: str) -> b
         print(f"❌ Unexpected error during rate change: {e}")
         return False
 
+# -------------------------------------------------------------------
+# --- 【新規追加】 Core Utility Function: Get All Running Process Names ---
+
+def get_all_process_names() -> set:
+    """
+    psutilを使用して、現在実行中の全プロセス名（.exe名など）を重複なく取得し、セットで返します。
+    """
+    process_names = set()
+    try:
+        for proc in psutil.process_iter(['name']):
+            # プロセス名が取得できたらセットに追加
+            name = proc.info.get('name')
+            if name:
+                process_names.add(name)
+        return process_names
+    except psutil.NoSuchProcess:
+        # プロセスが終了している場合のエラーを無視
+        return process_names
+    except Exception as e:
+        print(f"❌ プロセス名の取得に失敗しました (psutil error): {e}")
+        return set()
+
+# -------------------------------------------------------------------
 # --- CLI Execution Block (テスト用に利用) ---
 if __name__ == "__main__":
     # --- Monitor Capabilities Test ---
     print("\n--- Full Monitor Capabilities Test ---")
-    
-    # 従来のCLIテストはコメントアウトし、モニターテストを最優先で実行
     
     capabilities = get_monitor_capabilities()
     
@@ -190,3 +213,15 @@ if __name__ == "__main__":
         print(json.dumps(capabilities, indent=4, ensure_ascii=False))
     else:
         print("❌ Failed to retrieve monitor capabilities. Check ResolutionSwitcher.exe functionality.")
+        
+    # --- Process List Test (新規追加) ---
+    print("\n--- Process List Test ---")
+    
+    # 実際に出力すると大量になるため、最初の10個だけ表示
+    process_list = get_all_process_names()
+    
+    if process_list:
+        print(f"✅ Successfully retrieved {len(process_list)} running processes.")
+        # print("First 10 processes:", list(process_list)[:10])
+    else:
+        print("❌ Failed to retrieve process list.")

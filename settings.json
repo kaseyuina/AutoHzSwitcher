@@ -1,0 +1,9 @@
+{
+    "selected_monitor_id": "\\\\.\\DISPLAY2",
+    "target_resolution": "2560x1440",
+    "is_monitoring_enabled": true,
+    "default_low_rate": 60,
+    "use_global_high_rate": false,
+    "global_high_rate": 165,
+    "games": []
+}
