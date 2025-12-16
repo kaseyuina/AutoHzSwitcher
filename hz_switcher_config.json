@@ -3,19 +3,20 @@
     "target_resolution": "2560x1440",
     "is_monitoring_enabled": true,
     "default_low_rate": 60,
+    "use_global_high_rate": false,
+    "global_high_rate": null,
     "games": [
         {
-            "name": "Game High (144Hz)",
-            "process_name": "Notepad.exe",
-            "high_rate": 144,
+            "name": "Street Fighter 6",
+            "process_name": "StreetFighter6.exe",
+            "high_rate": 165,
             "low_rate_on_exit": 60,
             "is_enabled": true
         },
         {
-            "name": "Game Mid (120Hz)",
-            "process_name": "Calc.exe",
-            "high_rate": 120,
-            "low_rate_on_exit": 60,
+            "name": "Notepad",
+            "process_name": "Notepad.exe",
+            "high_rate": 144,
             "is_enabled": true
         },
         {
@@ -24,8 +25,17 @@
             "high_rate": 165,
             "low_rate_on_exit": 60,
             "is_enabled": true
+        },
+        {
+            "name": "Minecraft",
+            "process_name": "Minecraft.Windows.exe",
+            "high_rate": 144,
+            "is_enabled": true
         }
     ],
-    "use_global_high_rate": false,
-    "global_high_rate": 144
+    "language": "en",
+    "available_languages": [
+        "ja",
+        "en"
+    ]
 }

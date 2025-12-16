@@ -1,4 +1,4 @@
-# main_app.py
+# main_app.py (フルコード)
 
 import tkinter as tk
 from threading import Thread, Event
@@ -8,14 +8,14 @@ import sys
 import json
 import os
 import time
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
-# 監視用ライブラリをインポート
-import psutil 
+# 監視用ライブラリ (psutil) は switcher_utility.py に移動するため削除
+# import psutil  <-- 削除
 
 # 開発中のGUIクラスとユーティリティをインポート
 from main_gui import HzSwitcherApp 
-from switcher_utility import change_rate, get_all_process_names 
+from switcher_utility import change_rate, get_all_process_names # <-- get_all_process_namesをインポート
 
 # ----------------------------------------------------------------------
 # 設定の読み込みとGUIの起動を管理するメインクラス
@@ -26,7 +26,7 @@ class MainApplication:
         self.config_path = "hz_switcher_config.json"
         
         self.stop_event = Event() 
-        self.current_rate = None 
+        self.current_rate: Optional[int] = None 
         
         self.settings = self._load_settings()
         
@@ -37,18 +37,19 @@ class MainApplication:
         self.gui_window = None
         self.gui_app_instance = None
         
-        # 🌟 🚨 必須の修正: status_message の定義 🚨 🌟
-        # AttributeError: 'MainApplication' object has no attribute 'status_message' の解決
-        self.status_message = tk.StringVar(value="Status: IDLE: Initializing...")
+        self.status_message = tk.StringVar(value="Status: Initializing...")
+        
+        self._last_status_message = ""
         
         self.setup_tray()
         
         # current_rateの初期値設定（default_low_rateを使用）
         self.current_rate = self.settings.get("default_low_rate", 60)
 
+        # 監視スレッドの開始
         self.start_monitoring_thread()
         
-    # --- 設定管理メソッド ---
+    # --- 設定管理メソッド (省略: 変更なし) ---
     def _get_default_settings(self) -> Dict[str, Any]:
         """デフォルト設定を返します。（複数ゲーム対応）"""
         return {
@@ -56,7 +57,9 @@ class MainApplication:
             "target_resolution": "",
             "is_monitoring_enabled": False,
             "default_low_rate": 60,
-            "games": [] # ゲーム設定はリストで保持
+            "use_global_high_rate": False, 
+            "global_high_rate": 144,      
+            "games": [] 
         }
 
     def _load_settings(self) -> Dict[str, Any]:
@@ -69,7 +72,6 @@ class MainApplication:
                     loaded_settings = json.load(f)
                     settings = {**default_settings, **loaded_settings}
                     
-                    # 古い単一設定から新しいリスト構造への変換（初回起動時のみ）
                     if 'target_process_name' in loaded_settings and not loaded_settings.get('games'):
                         print("古い設定構造を検出しました。新しい 'games' リストに変換します。")
                         
@@ -111,6 +113,7 @@ class MainApplication:
         switcher_utilityから現在実行中の全プロセス名を取得します。
         """
         try:
+            # switcher_utility からインポートされた関数を呼び出す
             return get_all_process_names()
         except Exception as e:
             print(f"プロセス名の取得に失敗しました: {e}")
@@ -128,7 +131,8 @@ class MainApplication:
         
         if monitor_id and resolution:
             # 初期レート（default_low_rate）を設定
-            self._enforce_rate(self.settings.get("default_low_rate", 60))
+            if not self._enforce_rate(self.settings.get("default_low_rate", 60)):
+                print("Warning: Initial low rate enforcement failed. Monitoring will continue.")
         else:
             print("Warning: Monitor ID or Resolution not set. Initial rate enforcement skipped.") 
 
@@ -140,70 +144,116 @@ class MainApplication:
     def _monitoring_loop(self):
         """
         設定された複数のプロセスを継続的に監視し、最高レートを適用します。
+        現在のステータスを self.status_message に反映します。
         """
         
         while not self.stop_event.is_set(): 
             
-            # 監視が設定で無効な場合は待機
-            if not self.settings.get("is_monitoring_enabled", False):
+            is_monitoring_enabled = self.settings.get("is_monitoring_enabled", False)
+            
+            if not is_monitoring_enabled:
+                self.status_message.set(f"Status: MONITORING DISABLED ({self.current_rate} Hz)")
                 time.sleep(1) 
                 continue
             
-            # 1. 全ての実行中のプロセス名を取得
+            global_high_rate_value = self.settings.get("global_high_rate", 144)
+            use_global_high_rate = self.settings.get("use_global_high_rate", False)
+            default_low_rate = self.settings.get("default_low_rate", 60)
+            
             running_processes = self._get_running_process_names()
             
-            # 2. 現在実行中で、最も高いレートを要求しているゲームを特定
-            highest_required_rate = self.settings.get("default_low_rate", 60) # デフォルトは低レート
+            highest_required_rate = default_low_rate 
             is_any_game_running = False
             
+            current_log_message = "" 
+            current_status_tag = "IDLE" 
+            current_game_name = None 
+            
             for game in self.settings.get("games", []):
-                # 設定が無効なゲームは無視
                 if not game.get("is_enabled", False):
                     continue
                 
                 process_name = game.get("process_name")
                 high_rate = game.get("high_rate", 144)
                 
-                # 3. プロセスが実行中かどうかをチェック
                 if process_name and process_name in running_processes:
                     is_any_game_running = True
                     
-                    # 実行中のゲームの中で、最も高いレートを要求しているものを選択
+                    if use_global_high_rate:
+                        highest_required_rate = global_high_rate_value
+                        current_game_name = "Global High Rate"
+                        current_log_message = f"グローバル高Hz ({global_high_rate_value}Hz) を適用中。"
+                        current_status_tag = f"Global High "
+                        break 
+                    
                     if high_rate > highest_required_rate:
                         highest_required_rate = high_rate
-            
-            # 4. レートの切り替え判定
+                        current_game_name = game.get('name', process_name)
+                        current_log_message = f"高レートのゲーム ({current_game_name}) を実行中。({highest_required_rate}Hz) の個別の設定を適用中。"
+                        current_status_tag = f"Game: {current_game_name}"
+
             target_rate = None
             
-            # a) ゲームが実行中、かつ要求レートが現在のレートと異なる場合 
-            if is_any_game_running and highest_required_rate > self.current_rate:
-                target_rate = highest_required_rate
-                print(f"高レートのゲームを実行中 ({highest_required_rate}Hz 要求)。")
-            
-            # b) ゲームが実行されておらず、現在のレートがデフォルトの低レートでない場合 (Low Rateへの復帰)
-            elif not is_any_game_running and self.current_rate != self.settings.get("default_low_rate", 60):
-                target_rate = self.settings.get("default_low_rate", 60)
-                print(f"ゲームが全て終了しました。デフォルトの低レートに戻します ({target_rate}Hz)。")
+            if is_any_game_running:
+                if highest_required_rate != self.current_rate: 
+                    target_rate = highest_required_rate
+                    print(f"高レートのゲーム ({current_game_name}) を実行中。レートを {target_rate}Hz に切り替えます。")
                 
+                elif current_log_message and self._last_status_message != current_log_message:
+                    print(current_log_message)
+                    self._last_status_message = current_log_message
+                
+            elif not is_any_game_running and self.current_rate != default_low_rate:
+                target_rate = default_low_rate
+                current_status_tag = "Returning to IDLE" 
+                print(f"ゲームが全て終了しました。デフォルトの低レートに戻します ({target_rate}Hz)。")
+                self._last_status_message = "" 
+            
+            elif not is_any_game_running and self.current_rate == default_low_rate:
+                current_status_tag = "IDLE"
+                self._last_status_message = "" 
+                pass
+            
             
             # 5. レート変更の実行
             if target_rate is not None:
-                self._switch_rate(target_rate)
-                
-            # 6. 監視間隔の待機
+                if self._switch_rate(target_rate):
+                    # レート変更が成功したら、ログステータスとGUIステータスを更新
+                    if is_any_game_running:
+                        self._last_status_message = current_log_message
+                    else:
+                        self._last_status_message = ""
+                        
+                    # レート変更が成功したため、current_status_tagを更新
+                    if target_rate == default_low_rate:
+                         current_status_tag = "IDLE"
+                    elif use_global_high_rate and target_rate == global_high_rate_value:
+                         current_status_tag = f"Global High ({target_rate}Hz)"
+                    elif is_any_game_running and current_game_name:
+                         current_status_tag = f"Game: {current_game_name}"
+                    
+            # 6. 毎ループ、GUIのステータス表示を更新 
+            self.status_message.set(f"Status: {current_status_tag} ({self.current_rate} Hz)")
+            
+            # 7. 監視間隔の待機
             time.sleep(1) 
             
-        # 監視が停止された場合
         print("プロセス監視が停止しました。")
 
-    def _switch_rate(self, target_rate: int):
-        """レート変更を実行し、成功した場合に current_rate を更新します。"""
+    def _switch_rate(self, target_rate: int) -> bool:
+        """
+        レート変更を実行し、成功した場合に self.current_rate を更新します。
+        """
         if self._enforce_rate(target_rate):
             self.current_rate = target_rate
-    
+            return True
+        return False 
+
     
     def _enforce_rate(self, target_rate: int) -> bool:
-        """指定されたレートに強制的に変更を適用します。"""
+        """
+        指定されたレートに強制的に変更を適用します。
+        """
         monitor_id = self.settings.get("selected_monitor_id")
         resolution = self.settings.get("target_resolution")
         
@@ -220,9 +270,16 @@ class MainApplication:
         print(f"Executing command: \"ResolutionSwitcher\" --monitor {monitor_id} --width {width} --height {height} --refresh {target_rate}")
         
         # change_rate は switcher_utility からインポートされています。
-        return change_rate(target_rate, width, height, monitor_id)
+        # change_rate は成功時に True、失敗時に False を返すことを想定します。
+        success = change_rate(target_rate, width, height, monitor_id)
+        
+        if not success:
+             print(f"Error: Failed to change rate to {target_rate}Hz.")
+             return False
+             
+        return True 
 
-    # --- トレイとGUI管理メソッド ---
+    # --- トレイとGUI管理メソッド (省略: 変更なし) ---
     def setup_tray(self):
         """システムトレイアイコンとメニューを設定します。"""
         
@@ -233,7 +290,6 @@ class MainApplication:
             print("Warning: icon.png not found. Using a simple gray icon.")
             image = Image.new('RGB', (64, 64), color='gray') 
         
-        # pystray の MenuItem の引数を self.open_gui などに変更
         menu = pystray.Menu(
             pystray.MenuItem('設定を開く', self.open_gui, default=True), 
             pystray.MenuItem(
@@ -261,17 +317,17 @@ class MainApplication:
         state_text = "有効" if new_state else "無効"
         print(f"Monitoring Toggled: {state_text}")
         
-        # 🌟 既にGUIウィンドウが開いている場合に状態を更新する (連動の核) 🌟
+        if not new_state:
+            self._switch_rate(self.settings.get("default_low_rate", 60))
+            self.status_message.set(f"Status: MONITORING DISABLED ({self.current_rate} Hz)") 
+        else:
+            self._switch_rate(self.settings.get("default_low_rate", 60))
+            self.status_message.set(f"Status: IDLE ({self.current_rate} Hz)") 
+
         if self.gui_app_instance and self.gui_window and self.gui_window.winfo_exists():
             if hasattr(self.gui_app_instance, '_update_monitoring_state_from_settings'):
                 self.gui_app_instance._update_monitoring_state_from_settings()
 
-        # 🌟 status_message の更新 (AttributeError 対策済み) 🌟
-        if not new_state:
-            self._enforce_rate(self.settings.get("default_low_rate", 60))
-            self.status_message.set("Status: MONITORING DISABLED") 
-        else:
-            self.status_message.set("Status: IDLE: Monitoring...") 
 
     def run(self):
         """システムトレイアイコンを別スレッドで実行し、Tkinterのメインループを開始します。"""
@@ -281,32 +337,26 @@ class MainApplication:
 
     def open_gui(self):
         """GUI設定画面を開きます。"""
-        # GUIが既に存在し、閉じられていない場合は再表示
         if self.gui_window and self.gui_window.winfo_exists():
             self.gui_window.deiconify() 
             self.gui_window.lift() 
             
-            # 既に開いているGUIの状態を最新の設定で更新
             if hasattr(self, 'gui_app_instance') and hasattr(self.gui_app_instance, '_update_monitoring_state_from_settings'):
                 self.gui_app_instance._update_monitoring_state_from_settings()
             
             return
 
-        # GUIウィンドウの新規作成
         self.gui_window = tk.Toplevel(self.root)
-        # 🌟 ここでインスタンスを self.gui_app_instance に格納する 🌟
         self.gui_app_instance = HzSwitcherApp(self.gui_window, self)
 
     def quit_application(self):
         """アプリケーションを完全に終了します。"""
         print("Application shutting down...")
         
-        # 1. 監視スレッドを安全に停止させる
         self.stop_event.set() 
         if hasattr(self, 'monitor_thread') and self.monitor_thread.is_alive():
             self.monitor_thread.join(timeout=1) 
         
-        # 2. システムトレイアイコンを停止させる
         if hasattr(self, 'icon'):
             try:
                 self.icon.stop() 
@@ -314,14 +364,12 @@ class MainApplication:
             except Exception as e:
                 print(f"Warning: Failed to stop pystray icon cleanly: {e}") 
 
-        # 3. Tkinterのメインループを終了させる
         try:
-             self.root.quit()
-             self.root.destroy()
+            self.root.quit()
+            self.root.destroy()
         except:
-             pass
+            pass
 
-        # 4. プロセスを終了させる
         print("Process exit.")
         sys.exit(0)
 

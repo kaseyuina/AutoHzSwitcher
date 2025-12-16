@@ -1,17 +1,20 @@
+# switcher_utility.py
+# Hz Switcher アプリケーションのためのユーティリティ関数群
+
 import subprocess
 import argparse
 import sys
 import os
 import re
 import json
-import psutil # <- 【新規追加】プロセス情報を取得するためのライブラリ
-# psutilは外部ライブラリのため、別途インストールが必要です (pip install psutil)
+import psutil # <- プロセス情報を取得するためのライブラリ
+from typing import List, Dict, Any, Set # 型ヒントのために追加
 
 # --- Configuration Settings (Constants) ---
 # 相対パスを使用 (動作確認済み)
 SWITCHER_PATH = r"ResolutionSwitcher" 
 
-# --- Core Utility Function: Get Monitor Modes (新規作成) ---
+# --- Core Utility Function: Get Monitor Modes (変更なし) ---
 
 def _get_monitor_modes(monitor_id: str) -> dict:
     """
@@ -26,11 +29,11 @@ def _get_monitor_modes(monitor_id: str) -> dict:
     try:
         result = subprocess.run(
             full_command, 
-            check=False,    
-            shell=True,     
+            check=False,
+            shell=True, 
             capture_output=True, 
             text=True, 
-            encoding='cp932',
+            encoding='cp932', # Windowsでの日本語環境に対応
         )
         
         # 終了コードチェック
@@ -43,8 +46,6 @@ def _get_monitor_modes(monitor_id: str) -> dict:
         output = result.stdout
         
         # --- データ解析処理 ---
-        # 解像度とHzのパターン (例: 2560x1440 @ 165Hz)
-        # Available Modesセクション以降のデータを取得
         mode_section = False
         mode_pattern = re.compile(r"(\d+x\d+)\s+@\s+(\d+)Hz") 
 
@@ -56,7 +57,6 @@ def _get_monitor_modes(monitor_id: str) -> dict:
                 continue
                 
             if mode_section:
-                # 行全体から複数の解像度/レートの組み合わせを検索
                 matches = mode_pattern.findall(line)
 
                 for resolution, rate_str in matches:
@@ -68,7 +68,6 @@ def _get_monitor_modes(monitor_id: str) -> dict:
                     if rate not in modes[resolution]:
                         modes[resolution].append(rate)
                         
-        # リストは通常ソートされているが、念のためソート
         for res in modes:
             modes[res].sort(reverse=True)
             
@@ -79,16 +78,15 @@ def _get_monitor_modes(monitor_id: str) -> dict:
         return modes
 
 
-# --- Core Utility Function: Get Monitor Capabilities (メイン関数) ---
+# --- Core Utility Function: Get Monitor Capabilities (変更なし) ---
 
 def get_monitor_capabilities() -> dict:
     """
     全モニターのID、名前、およびサポートレート情報を取得し統合します。
+    GUIのモニター設定画面で利用されます。
     """
-    # 最終的な結果を格納する辞書
     all_capabilities = {}
 
-    # 1. まず --monitors で全モニターのIDと名前を取得する (現在の設定のみの出力)
     full_command_monitors = f'"{SWITCHER_PATH}" --monitors'
 
     try:
@@ -98,7 +96,6 @@ def get_monitor_capabilities() -> dict:
         )
         output = result.stdout
         
-        # 解析に必要なパターン
         name_block_pattern = re.compile(r"^\[(.+)\]$")
         id_pattern = re.compile(r"^ID: (.+)$") 
         
@@ -111,20 +108,16 @@ def get_monitor_capabilities() -> dict:
             id_match = id_pattern.match(line)
             
             if name_block_match:
-                # モニター名ブロックを見つける (例: [DELL S2723HC])
                 current_name = name_block_match.group(1).strip()
             elif id_match:
-                # モニターIDを見つけたら、それをキーとして準備
                 current_id = id_match.group(1).strip()
-                # 2. そのIDを使って、サポートされている全モードを取得
+                # モード情報を取得
                 all_modes = _get_monitor_modes(current_id) 
                 
-                # 3. 結果を統合
                 all_capabilities[current_id] = {
                     'Name': current_name, 
                     'Rates': all_modes
                 }
-                # 次のモニターのために名前をリセット
                 current_name = 'Unknown Monitor' 
 
         return all_capabilities
@@ -134,13 +127,13 @@ def get_monitor_capabilities() -> dict:
         return {}
 
 
-# --- Core Utility Function: Change Rate ---
+# --- Core Utility Function: Change Rate (元のロジックを維持) ---
 
 def change_rate(target_rate: int, width: int, height: int, monitor_id: str) -> bool:
     """
-    指定されたモニターのリフレッシュレートを変更します。 (前回の成功コードを維持)
+    指定されたモニターのリフレッシュレートを変更します。
+    メイン監視ループ (_enforce_rate) から呼び出されます。
     """
-    # 1. ResolutionSwitcher.exe への引数を構築
     rs_args = (
         f'--monitor "{monitor_id}" '
         f'--width {width} '
@@ -148,7 +141,6 @@ def change_rate(target_rate: int, width: int, height: int, monitor_id: str) -> b
         f'--refresh {target_rate} '
     )
     
-    # 2. full_command の構築
     full_command = (
         f'"{SWITCHER_PATH}" {rs_args}'
     )
@@ -156,7 +148,7 @@ def change_rate(target_rate: int, width: int, height: int, monitor_id: str) -> b
     print(f"Executing command: {full_command}")
 
     try:
-        # subprocess.run の設定 (文字コード、エラーキャプチャ、shell=True)
+        # shell=True を使用してコマンドを実行 (元のコードに従う)
         result = subprocess.run(full_command, check=False, shell=True, 
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
                                 text=True, encoding='cp932') 
@@ -179,26 +171,62 @@ def change_rate(target_rate: int, width: int, height: int, monitor_id: str) -> b
         return False
 
 # -------------------------------------------------------------------
-# --- 【新規追加】 Core Utility Function: Get All Running Process Names ---
+# --- Core Utility Function: Get Running Processes (GUI実装の基盤) ---
 
-def get_all_process_names() -> set:
+def get_running_processes() -> List[Dict[str, Any]]:
     """
-    psutilを使用して、現在実行中の全プロセス名（.exe名など）を重複なく取得し、セットで返します。
+    実行中のプロセスの一覧を取得し、名前（.exe）と実行パスを返します。
+    GUIのプロセス参照・登録機能で利用されます。
     """
-    process_names = set()
+    processes = []
+    seen_processes = set()
     try:
-        for proc in psutil.process_iter(['name']):
-            # プロセス名が取得できたらセットに追加
-            name = proc.info.get('name')
-            if name:
-                process_names.add(name)
-        return process_names
-    except psutil.NoSuchProcess:
-        # プロセスが終了している場合のエラーを無視
-        return process_names
+        # pid, name, exe (実行パス) の情報を取得
+        for proc in psutil.process_iter(['pid', 'name', 'exe']):
+            try:
+                process_name = proc.info.get('name')
+                executable_path = proc.info.get('exe')
+                
+                if process_name and executable_path:
+                    # プロセス名とパスのペアをキーとして重複をチェック (同じexeが複数PIDで動いていても1エントリとする)
+                    key = (process_name, executable_path)
+                    if key not in seen_processes:
+                        processes.append({
+                            "name": process_name,
+                            "path": executable_path
+                        })
+                        seen_processes.add(key)
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                # アクセス拒否や既に終了したプロセスはスキップ
+                continue
     except Exception as e:
-        print(f"❌ プロセス名の取得に失敗しました (psutil error): {e}")
+        print(f"Error reading processes: {e}")
+        return []
+        
+    return sorted(processes, key=lambda x: x['name'].lower())
+
+# -------------------------------------------------------------------
+# --- 【新規追加】 Main App モニタリング用のラッパー関数 ---
+
+def get_all_process_names() -> Set[str]:
+    """
+    メインアプリの監視ループで使用するために、現在実行中のプロセス名のみのSetを返します。
+    """
+    running_names: Set[str] = set()
+    try:
+        # get_running_processesの結果から名前だけを抽出するか、psutilを直接使用する
+        # ここでは、元の get_running_processes のロジックに影響を与えないよう、
+        # psutilをシンプルに使って名前のみ取得します。
+        for proc in psutil.process_iter(['name']):
+             name = proc.info.get('name')
+             if name:
+                 running_names.add(name)
+        return running_names
+        
+    except Exception as e:
+        print(f"Error retrieving all process names for monitoring: {e}")
         return set()
+
 
 # -------------------------------------------------------------------
 # --- CLI Execution Block (テスト用に利用) ---
@@ -214,14 +242,22 @@ if __name__ == "__main__":
     else:
         print("❌ Failed to retrieve monitor capabilities. Check ResolutionSwitcher.exe functionality.")
         
-    # --- Process List Test (新規追加) ---
-    print("\n--- Process List Test ---")
+    # --- Process List Test (Name and Path for GUI) ---
+    print("\n--- Process List Test (Name and Path for GUI) ---")
     
-    # 実際に出力すると大量になるため、最初の10個だけ表示
-    process_list = get_all_process_names()
+    process_list = get_running_processes()
     
     if process_list:
-        print(f"✅ Successfully retrieved {len(process_list)} running processes.")
-        # print("First 10 processes:", list(process_list)[:10])
+        print(f"✅ Successfully retrieved {len(process_list)} unique running processes (Name and Path).")
+        print("First 5 processes:")
+        for p in process_list[:5]:
+            print(f"   Name: {p['name']}, Path: {p['path']}")
     else:
         print("❌ Failed to retrieve process list.")
+
+    # --- Process Name Set Test (for monitoring loop) ---
+    print("\n--- Process Name Set Test (for monitoring loop) ---")
+    
+    name_set = get_all_process_names()
+    print(f"✅ Total unique process names: {len(name_set)}")
+    print(f"Set contains 'explorer.exe': {'explorer.exe' in name_set}")
