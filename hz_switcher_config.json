@@ -19,12 +19,6 @@
             "process_name": "FortniteClient-Win64-Shipping_EAC_EOS.exe",
             "high_rate": 165,
             "is_enabled": true
-        },
-        {
-            "name": "New Game",
-            "process_name": "Notepad.exe",
-            "high_rate": 120,
-            "is_enabled": true
         }
     ],
     "available_languages": [

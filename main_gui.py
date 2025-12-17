@@ -255,7 +255,7 @@ class HzSwitcherApp:
         self.monitor_dropdown = ttk.Combobox(global_monitor_frame, textvariable=self.selected_monitor_id, state='readonly', width=20)
         self.monitor_dropdown.grid(row=1, column=1, padx=(5, 15), pady=5, sticky='ew') 
         self.monitor_dropdown.bind('<<ComboboxSelected>>', self.update_resolution_dropdown)
-        
+
         ttk.Label(global_monitor_frame, text=self.lang.get("idle_low_rate")).grid(row=1, column=2, padx=(5, 5), pady=5, sticky='w')
         self.low_rate_combobox = ttk.Combobox(global_monitor_frame, textvariable=self.default_low_rate, state='readonly', width=10) 
         self.low_rate_combobox.grid(row=1, column=3, padx=(0, 0), pady=5, sticky='w') 
@@ -840,6 +840,27 @@ class HzSwitcherApp:
             self.resolution_dropdown.set("")
 
         self.update_all_rate_dropdowns(None)
+        # main_gui.py の HzSwitcherApp クラス内にある update_resolution_dropdown メソッドの末尾
+
+        # ----------------------------------------------------
+        # ★ モニター変更時のゲームレート整合性チェック (修正) ★
+        # ----------------------------------------------------
+        try:
+            # 1. 更新された新しいモニターモードのリストを、
+            #    既にGUIに値が設定されているコンボボックスから取得する。
+            #    (self.global_high_rate_combobox は既に正しい値を持っているはず)
+            new_modes = self.global_high_rate_combobox['values'] 
+            
+            # values が空でないことを確認
+            if not new_modes:
+                raise AttributeError("Global high rate combobox values are empty.")
+
+            # 2. ゲーム設定の整合性を検証・修正
+            self._validate_game_rates(list(new_modes)) # Comboboxの値はタプルなのでリストに変換して渡す
+
+        except AttributeError as e:
+            # 警告は表示しつつ、致命的なエラーではないため続行
+            print(f"Warning: Could not validate game rates, failed to get combobox values: {e}")
 
     def update_all_rate_dropdowns(self, event):
         """選択された解像度に基づき、すべてのリフレッシュレートドロップダウンを更新します。"""
@@ -984,6 +1005,60 @@ class HzSwitcherApp:
         
         self._show_notification(self.lang.get("notification_success"), self.lang.get("success_settings_saved"))
 
+    def _validate_game_rates(self, new_monitor_modes: list) -> bool:
+        """
+        メインモニターが変更された際、ゲーム設定内の高Hzが新しいモニターで
+        サポートされているか検証し、サポート外であれば最大レートに自動修正する。
+
+        Args:
+            new_monitor_modes: 新しく選択されたモニターがサポートするHzのリスト (例: [60, 120, 144])
+
+        Returns:
+            bool: 設定が変更された場合は True、変更がない場合は False。
+        """
+        
+        # 1. 新モニターがサポートするHzをセットにして高速検索可能にする
+        supported_rates = {int(rate) for rate in new_monitor_modes if rate is not None}
+        
+        # 2. サポートレートが空でなければ、その中の最大値を取得する (フォールバックとして60Hzを使用)
+        if supported_rates:
+            max_rate = max(supported_rates)
+        else:
+            # モードが取得できなかった場合の安全策として、60Hzを最大レートと見なす
+            max_rate = 60 
+
+        settings_changed = False
+        
+        games_list = self.app.settings.get("games", [])
+        updated_games_list = []
+        
+        for game in games_list:
+            # game_rate は int に変換して検証する
+            try:
+                game_rate = int(game.get("high_rate", max_rate))
+            except ValueError:
+                # 無効な値が入っていた場合、最大レートに修正
+                game_rate = max_rate
+
+            # 3. 検証: ゲームのレートが新モニターでサポートされているか？
+            if game_rate not in supported_rates:
+                # 4. 修正: サポートされていない場合、新モニターの最大レートに置き換える
+                game["high_rate"] = max_rate
+                settings_changed = True
+                
+                # コンソールに通知を出力 (オプション)
+                print(f"Warning: Game '{game['name']}' rate ({game_rate}Hz) not supported by new monitor. Auto-corrected to {max_rate}Hz.")
+            
+            updated_games_list.append(game)
+
+        # 5. 設定が変更された場合、設定ファイルとGUIを更新する
+        if settings_changed:
+            self.app.settings["games"] = updated_games_list
+            self.app.save_settings(self.app.settings) 
+            self._draw_game_list() # GUIのゲーム一覧を更新
+            return True
+            
+        return False
 
 if __name__ == '__main__':
     # 動作確認用のメインループ
