@@ -292,9 +292,21 @@ class HzSwitcherApp:
         game_list_frame.pack(fill='both', pady=5)
         #game_list_frame.pack(fill='both', expand=True, pady=5)
         
-        self.game_tree = ttk.Treeview(game_list_frame, columns=('Name', 'Process', 'HighRate'), show='headings', selectmode='browse', height=8)
+        #self.game_tree = ttk.Treeview(game_list_frame, columns=('Name', 'Process', 'HighRate'), show='headings', selectmode='browse', height=8)
         #self.game_tree = ttk.Treeview(game_list_frame, columns=('Name', 'Process', 'HighRate'), show='headings', selectmode='browse')
-        
+        # 修正: show='tree headings' に変更し、#0列を使用可能にする
+        self.game_tree = ttk.Treeview(
+            game_list_frame, 
+            columns=('Name', 'Process', 'HighRate'), 
+            show='tree headings',  # 'headings' -> 'tree headings' に変更
+            selectmode='browse', 
+            height=8
+        )
+
+        # 新しい列の定義: #0 列 (有効/無効のチェックボックス)
+        self.game_tree.heading('#0', text=self.lang.get("enable_abbr", "有効"), anchor='center')
+        self.game_tree.column('#0', width=50, anchor='center', stretch=False)
+
         # カラム設定
         self.game_tree.heading('Name', text=self.lang.get("game_name"))
         self.game_tree.heading('Process', text=self.lang.get("process_name"))
@@ -307,10 +319,17 @@ class HzSwitcherApp:
         
         self.game_tree.pack(side='left', fill='both', expand=True)
 
+        # 💡 クリックイベントをバインド
+        self.game_tree.bind('<ButtonRelease-1>', self._toggle_game_enabled)
+
         scrollbar = ttk.Scrollbar(game_list_frame, orient="vertical", command=self.game_tree.yview)
         scrollbar.pack(side='right', fill='y')
         self.game_tree.configure(yscrollcommand=scrollbar.set)
         
+        # 💡 タグの設定 (一度だけ実行)
+        self.game_tree.tag_configure('enabled_row', foreground='white') 
+        self.game_tree.tag_configure('disabled_row', foreground='gray')
+
         self._draw_game_list()
         
         # ボタンフレーム
@@ -386,23 +405,55 @@ class HzSwitcherApp:
         else:
             self.global_high_rate_combobox.config(state='disabled')
 
-
+    # --- _draw_game_list メソッド全体 ---
     def _draw_game_list(self):
         """設定ファイルからゲームデータを読み込み、Treeviewを再描画します。"""
+        
+        # 既存の行を削除
         for item in self.game_tree.get_children():
             self.game_tree.delete(item)
-            
+                
         games = self.app.settings.get("games", [])
-        
+            
         for index, game in enumerate(games):
+            is_enabled = game.get('is_enabled', True)
+            
+            # 状態に基づいたタグと、#0列に表示するテキストを設定
+            tags = ('disabled_row',) if not is_enabled else ('enabled_row',)
+            check_text = "✅" if is_enabled else "❌" # 絵文字でチェックマークを表示
+            
             display_values = (
                 game.get('name', self.lang.get('game_name')),
                 game.get('process_name', self.lang.get('process_name')),
                 game.get('high_rate', 'N/A')
             )
-            tags = ('disabled',) if not game.get('is_enabled', True) else ()
             
-            self.game_tree.insert('', 'end', iid=str(index), values=display_values, tags=tags)
+            # text 引数 (#0列) にチェックマークのテキストを渡す
+            self.game_tree.insert(
+                parent='', 
+                index='end', 
+                iid=str(index), 
+                text=check_text, 
+                values=display_values, 
+                tags=tags
+            )
+    
+    #def _draw_game_list(self):
+    #    """設定ファイルからゲームデータを読み込み、Treeviewを再描画します。"""
+    #    for item in self.game_tree.get_children():
+    #        self.game_tree.delete(item)
+    #        
+    #    games = self.app.settings.get("games", [])
+    #    
+    #    for index, game in enumerate(games):
+    #        display_values = (
+    #            game.get('name', self.lang.get('game_name')),
+    #            game.get('process_name', self.lang.get('process_name')),
+    #            game.get('high_rate', 'N/A')
+    #        )
+    #        tags = ('disabled',) if not game.get('is_enabled', True) else ()
+    #        
+    #        self.game_tree.insert('', 'end', iid=str(index), values=display_values, tags=tags)
 
 
     def _open_game_editor(self, game_data: Optional[Dict[str, Any]] = None, index: Optional[int] = None):
@@ -1059,7 +1110,48 @@ class HzSwitcherApp:
             return True
             
         return False
+    # --- HzSwitcherApp クラス内に新しいメソッドとして追加 ---
 
+    def _toggle_game_enabled(self, event):
+        """
+        Treeviewの#0列(チェックボックス)がクリックされたときに、
+        有効/無効の状態を切り替えます。
+        """
+        # 1. クリックされた位置の項目ID (iid=index) を取得
+        item_id = self.game_tree.identify_row(event.y)
+        if not item_id:
+            return
+
+        # 2. クリックされた列を取得
+        column_id = self.game_tree.identify_column(event.x)
+        
+        # 3. 制御: #0 列 (有効/無効のチェックボックス列) がクリックされた場合のみ続行
+        if column_id != '#0':
+            # #0 列以外がクリックされた場合は、選択状態を変えるだけで、
+            # 有効/無効の切り替えは行わずに処理を終了する
+            return
+
+        # iid は str(index) なので、int に変換
+        try:
+            index = int(item_id)
+        except ValueError:
+            return # 整数に変換できない場合は無視
+
+        games_list = self.app.settings.get("games", [])
+        
+        if 0 <= index < len(games_list):
+            # 現在の状態を取得し、反転
+            current_state = games_list[index].get("is_enabled", True)
+            new_state = not current_state
+            games_list[index]["is_enabled"] = new_state
+            
+            # 設定を保存
+            self.app.settings["games"] = games_list
+            self.app.save_settings(self.app.settings)
+            
+            # GUIを更新してチェックボックスの表示を反映
+            self._draw_game_list()
+            
 if __name__ == '__main__':
     # 動作確認用のメインループ
     
