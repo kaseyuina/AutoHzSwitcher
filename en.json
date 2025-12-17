@@ -9,6 +9,7 @@
     "resolution": "Resolution:",
     "idle_low_rate": "　 Idle Low Hz:",
     "use_global_high_rate_check": "Use Global High Hz:",
+    "global_high_rate": "　 Global High Hz:",
     "game_app_title": "🎮 Game/Application Settings",
     "game_name": "Game Name",
     "process_name": "Executable Name",
@@ -30,11 +31,10 @@
     "yes": "Yes",
     "no": "No",
     "confirm": "Confirmation",
-    "game_editor_title": "Edit Game Settings",
+    "game_editor_title": "Game Settings Editor",
     "new_game_default_name": "New Game",
-    "language_setting": "Language:",
+    "language_setting": "Language Setting:",
     "success_language_changed": "Language setting changed successfully.",
-
     "notification_error": "Error",
     "notification_warning": "Warning",
     "notification_success": "Success",
@@ -54,5 +54,14 @@
     "failure_rate_change": "Failed to change rate.\nSetting: {resolution}@{target_rate}{hz}\nCheck console for errors.",
     "error_no_selection_rate": "Monitor, resolution, or rate is not selected.",
     "success_settings_saved": "Global monitor and game settings saved.",
-    "warning_select_process": "Please select a process from the list."
+    "warning_select_process": "Please select a process from the list.",
+    "status_initialising": "Initialising...",
+    "status_idle_with_rate": "Idle @ {rate}{hz}",
+    "status_game_running": "{game_name} Running @ {rate}{hz}",
+    "status_rate_unknown": "Current rate detection failed (Error)",
+    "status_changing_rate": "Changing rate to: {rate}{hz}...",
+    "menu_open_settings": "Open Settings",
+    "menu_exit": "Exit",
+    "menu_disable_monitoring": "Disable monitoring",
+    "menu_enable_monitoring": "Enable monitoring"
 }

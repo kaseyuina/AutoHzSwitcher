@@ -1,4 +1,4 @@
-# main_app.py (フルコード)
+# main_app.py (修正後)
 
 import tkinter as tk
 from threading import Thread, Event
@@ -18,6 +18,33 @@ from main_gui import HzSwitcherApp
 from switcher_utility import change_rate, get_all_process_names # <-- get_all_process_namesをインポート
 
 # ----------------------------------------------------------------------
+# ユーティリティ: 言語リソースの読み込み (【修正】フォールバック処理を改善)
+# ----------------------------------------------------------------------
+def _load_language_resources(lang_code: str) -> Dict[str, str]:
+    """指定された言語コードのJSONファイルを読み込みます。"""
+    path = f"{lang_code}.json"
+    
+    # ファイルが存在しない場合、en.jsonにフォールバック
+    if not os.path.exists(path):
+        print(f"Warning: Language file {path} not found. Defaulting to English (en.json).")
+        path = "en.json"
+        
+        # 'en.json'も存在しない場合
+        if not os.path.exists(path):
+            print("Error: Default language file 'en.json' not found. Returning empty resources.")
+            return {} 
+    
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Error loading language file {path}: {e}. Returning empty resources.")
+        return {}
+
+# ----------------------------------------------------------------------
+
+
+# ----------------------------------------------------------------------
 # 設定の読み込みとGUIの起動を管理するメインクラス
 # ----------------------------------------------------------------------
 
@@ -30,6 +57,10 @@ class MainApplication:
         
         self.settings = self._load_settings()
         
+        # 【修正1】言語リソースの初期化: 設定から言語コードを読み込み、リソースをロード
+        self.language_code = self.settings.get('language', 'ja')
+        self.lang = _load_language_resources(self.language_code)
+        
         # Tkinterのルートウィンドウを隠す
         self.root = tk.Tk()
         self.root.withdraw() 
@@ -41,15 +72,15 @@ class MainApplication:
         
         self._last_status_message = ""
         
-        self.setup_tray()
-        
+        self._setup_tray_icon() # setup_trayを_setup_tray_iconにリネーム
+
         # current_rateの初期値設定（default_low_rateを使用）
         self.current_rate = self.settings.get("default_low_rate", 60)
 
         # 監視スレッドの開始
         self.start_monitoring_thread()
         
-    # --- 設定管理メソッド (省略: 変更なし) ---
+    # --- 設定管理メソッド ---
     def _get_default_settings(self) -> Dict[str, Any]:
         """デフォルト設定を返します。（複数ゲーム対応）"""
         return {
@@ -59,6 +90,7 @@ class MainApplication:
             "default_low_rate": 60,
             "use_global_high_rate": False, 
             "global_high_rate": 144,      
+            "language": "ja", # 🚨 修正: 言語コードを追加
             "games": [] 
         }
 
@@ -94,8 +126,11 @@ class MainApplication:
     def save_settings(self, new_settings: dict):
         """設定を保存し、インスタンス変数も更新します。（複数ゲーム対応）"""
         
-        self.settings.update(new_settings)
-        
+        # 🚨 修正: 言語コードを self.settings にマージする前に更新しておく
+        # main_gui.pyから呼ばれる場合、new_settingsには新しい language_code が含まれている
+        self.settings.update(new_settings) 
+        self.language_code = self.settings.get('language', 'ja')
+
         try:
             with open(self.config_path, 'w', encoding='utf-8') as f:
                 json.dump(self.settings, f, indent=4)
@@ -106,7 +141,7 @@ class MainApplication:
         except IOError as e:
             print(f"設定ファイルの書き込みに失敗しました: {e}")
             
-    # --- モニタリング機能 ---
+    # --- モニタリング機能 (省略: 変更なし) ---
     
     def _get_running_process_names(self) -> set:
         """
@@ -122,7 +157,7 @@ class MainApplication:
 
     def start_monitoring_thread(self):
         """監視スレッドを開始し、モニタリングを開始します。"""
-        if hasattr(self, 'monitor_thread') and self.monitor_thread.is_alive():
+        if hasattr(self, 'monitor_thread') and self.monitor_thread and self.monitor_thread.is_alive():
             print("Monitoring thread is already running.")
             return
 
@@ -217,8 +252,10 @@ class MainApplication:
             
             # 5. レート変更の実行
             if target_rate is not None:
-                if self._switch_rate(target_rate):
+                if self._enforce_rate(target_rate):
                     # レート変更が成功したら、ログステータスとGUIステータスを更新
+                    self.current_rate = target_rate # _enforce_rateの成功判定後にcurrent_rateを更新
+                    
                     if is_any_game_running:
                         self._last_status_message = current_log_message
                     else:
@@ -279,8 +316,47 @@ class MainApplication:
              
         return True 
 
-    # --- トレイとGUI管理メソッド (省略: 変更なし) ---
-    def setup_tray(self):
+    # --- トレイとGUI管理メソッド ---
+    
+    def _get_tray_menu_items(self):
+        """
+        【修正2】現在の言語設定に基づいてトレイメニュー項目を生成します。
+        pystray.Menuにラムダ関数やメニュー項目自体を動的に更新するためのラッパーを使用します。
+        """
+
+        def get_item_text(key: str, fallback: str):
+            """メニュー項目テキストを取得するためのクロージャ"""
+            return self.lang.get(key, fallback)
+
+        def toggle_monitoring_text_getter(item):
+            """監視状態に応じてメニューテキストを動的に変更する"""
+            is_enabled = self.settings.get('is_monitoring_enabled', False)
+            
+            # 言語リソースを再ロード
+            #self.lang = _load_language_resources(self.settings.get('language', 'ja'))
+            if is_enabled:
+                return get_item_text('menu_disable_monitoring', 'Disable Monitoring')
+            else:
+                return get_item_text('menu_enable_monitoring', 'Enable Monitoring')
+
+        # pystrayメニューを定義
+        return pystray.Menu(
+            # 設定を開く（静的テキスト）
+            pystray.MenuItem(get_item_text('menu_open_settings', 'Open Settings'), 
+                             self.open_gui, default=True), 
+            
+            # 監視切り替え（動的テキスト）
+            pystray.MenuItem(
+                toggle_monitoring_text_getter, # ラムダ関数の代わりに動的なテキスト取得関数を使用
+                self.toggle_monitoring
+            ),
+            pystray.Menu.SEPARATOR,
+            
+            # 終了（静的テキスト）
+            pystray.MenuItem(get_item_text('menu_exit', 'Exit'), self.quit_application)
+        )
+
+    def _setup_tray_icon(self):
         """システムトレイアイコンとメニューを設定します。"""
         
         try:
@@ -290,23 +366,68 @@ class MainApplication:
             print("Warning: icon.png not found. Using a simple gray icon.")
             image = Image.new('RGB', (64, 64), color='gray') 
         
-        menu = pystray.Menu(
-            pystray.MenuItem('設定を開く', self.open_gui, default=True), 
-            pystray.MenuItem(
-                '監視の有効/無効切り替え', 
-                self.toggle_monitoring
-            ),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem('終了', self.quit_application)
-        )
+        menu = self._get_tray_menu_items()
         
         self.icon = pystray.Icon("AutoHzSwitcher", 
                                  image, 
                                  "Auto Hz Switcher", 
                                  menu,
                                  action=self.open_gui)
+        # ★★★ ここに追加 ★★★
+        if hasattr(self, 'icon'):
+            print("DEBUG: self.icon successfully created.")
+        else:
+            print("DEBUG: ERROR: self.icon creation FAILED or was skipped.")
+        # ★★★ ここまで追加 ★★★
 
-    def toggle_monitoring(self):
+    # 【修正3】GUIからの言語更新通知を受け取り、トレイメニューを再生成するメソッド
+    def update_tray_language(self, new_language_code: str):
+        """
+        GUIから言語コードが変更されたことを通知され、トレイメニューを更新します。
+        """
+        #print(f"DEBUG: update_tray_language called. new_code: {new_language_code}")
+        #if self.language_code == new_language_code:
+        #    print("DEBUG: Language code is same, returning.")
+        #    return
+
+        self.language_code = new_language_code
+        self.lang = _load_language_resources(self.language_code)
+        self.settings['language'] = new_language_code
+        self.settings['language_code'] = new_language_code # 両方のキーを使用しているため
+        
+        # 新しい言語リソースをロード
+        self.lang = _load_language_resources(self.language_code)    
+        # ★★★ ここに追加 ★★★
+        #if hasattr(self, 'icon'):
+        #    print("DEBUG: self has 'icon'. Proceeding with menu update.")
+        #else:
+        #    print("DEBUG: WARNING: self does NOT have 'icon'. Menu update skipped.")
+        # ★★★ ここまで追加 ★★★
+        #     
+        if hasattr(self, 'icon'):
+            new_menu = self._get_tray_menu_items()
+            
+            # pystrayのメニューオブジェクトを新しいものに置き換える
+            self.icon.menu = new_menu
+            
+            # pystrayの内部メソッドを呼び出してメニューの再描画を試みる（環境依存）
+            try:
+                 # アイコンのタイトルを更新
+                 tray_title = self.lang.get('tray_title', 'Auto Hz Switcher')
+                 self.icon.title = tray_title
+                 
+                 # メニューの強制更新を試みる
+                 if hasattr(self.icon, '_run'): # pystrayが実行中の場合
+                     # pystrayでは、メニューオブジェクトを置き換えるだけで、次回開いたときに更新されることが期待されます
+                     # 強制更新の専用メソッドは公開されていないため、ここではメニューを置き換えるのみとします。
+                     pass
+                     
+            except Exception as e:
+                print(f"Warning: Failed to update pystray icon title: {e}.")
+                
+            print(f"Tray menu language updated to {new_language_code}. Menu will refresh on next interaction.")
+            
+    def toggle_monitoring(self, icon=None, item=None): # iconとitemを引数に追加 (pystrayのコールバックに合わせる)
         """監視状態を切り替えます。トレイメニューから呼ばれます。"""
         current_state = self.settings.get('is_monitoring_enabled', False)
         new_state = not current_state
@@ -314,7 +435,10 @@ class MainApplication:
         self.settings['is_monitoring_enabled'] = new_state
         self.save_settings(self.settings) 
         
-        state_text = "有効" if new_state else "無効"
+        # 🚨 修正: 言語リソースを使用
+        enabled_text = self.lang.get("monitoring_enabled_text", "Enabled")
+        disabled_text = self.lang.get("monitoring_disabled_text", "Disabled")
+        state_text = enabled_text if new_state else disabled_text
         print(f"Monitoring Toggled: {state_text}")
         
         if not new_state:
@@ -328,6 +452,10 @@ class MainApplication:
             if hasattr(self.gui_app_instance, '_update_monitoring_state_from_settings'):
                 self.gui_app_instance._update_monitoring_state_from_settings()
 
+        # 【追加】トレイメニューの動的な項目が更新されるように、メニュー全体を再設定
+        if hasattr(self, 'icon'):
+             self.icon.menu = self._get_tray_menu_items()
+
 
     def run(self):
         """システムトレイアイコンを別スレッドで実行し、Tkinterのメインループを開始します。"""
@@ -335,8 +463,13 @@ class MainApplication:
         print("Application running in system tray.")
         self.root.mainloop()
 
-    def open_gui(self):
+    def open_gui(self, icon=None, item=None): # iconとitemを引数に追加 (pystrayのコールバックに合わせる)
         """GUI設定画面を開きます。"""
+        # Tkinterのルートスレッドで実行するためにafter(0, ...)を使う
+        self.root.after(0, self._open_gui_action)
+        
+    def _open_gui_action(self):
+        """GUIを開く具体的な処理（Tkinterのスレッドで実行）"""
         if self.gui_window and self.gui_window.winfo_exists():
             self.gui_window.deiconify() 
             self.gui_window.lift() 
@@ -349,7 +482,7 @@ class MainApplication:
         self.gui_window = tk.Toplevel(self.root)
         self.gui_app_instance = HzSwitcherApp(self.gui_window, self)
 
-    def quit_application(self):
+    def quit_application(self, icon=None, item=None): # iconとitemを引数に追加 (pystrayのコールバックに合わせる)
         """アプリケーションを完全に終了します。"""
         print("Application shutting down...")
         

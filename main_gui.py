@@ -313,6 +313,13 @@ class HzSwitcherApp:
         # 1. 設定を保存
         self.app.settings["language"] = new_lang_code
         self.app.save_settings(self.app.settings)
+        # ------------------------------------------------------------------
+        # ★ ここに update_tray_language の呼び出しを追加します ★
+        # ------------------------------------------------------------------
+        if hasattr(self.app, 'update_tray_language'):
+            # MainApplicationのメソッドを呼び出し、タスクトレイメニューを更新
+            self.app.update_tray_language(new_lang_code) 
+        # ------------------------------------------------------------------
         
         # 2. LanguageManagerを新しい言語で再初期化
         self.lang = LanguageManager(new_lang_code)
@@ -322,6 +329,7 @@ class HzSwitcherApp:
         for widget in self.master.winfo_children():
             widget.destroy()
 
+        
         self.master.title(self.lang.get("app_title"))
 
         self._create_widgets()
