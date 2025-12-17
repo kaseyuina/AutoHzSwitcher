@@ -358,14 +358,28 @@ class MainApplication:
 
     def _setup_tray_icon(self):
         """システムトレイアイコンとメニューを設定します。"""
-        
+        # ★★★ ここを修正します ★★★
+        ICON_FILE_NAME = "app_icon.png"  # 準備したアイコンファイル名に変更
+        # ★★★★★★★★★★★★★
+
+        try:
+            # 外部ファイルからアイコン画像を読み込む
+            image = Image.open(ICON_FILE_NAME)
+        except FileNotFoundError:
+            print(f"Warning: {ICON_FILE_NAME} not found. Using a simple gray icon.")
+            # ファイルが見つからない場合は、代替の画像を生成
+            image = Image.new('RGB', (64, 64), color='gray') 
+        except Exception as e:
+            print(f"Warning: Failed to load icon file {ICON_FILE_NAME}: {e}. Using a simple gray icon.")
+            image = Image.new('RGB', (64, 64), color='gray')
+        """        
         try:
             icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.png")
             image = Image.open(icon_path)
         except FileNotFoundError:
             print("Warning: icon.png not found. Using a simple gray icon.")
             image = Image.new('RGB', (64, 64), color='gray') 
-        
+        """
         menu = self._get_tray_menu_items()
         
         self.icon = pystray.Icon("AutoHzSwitcher", 

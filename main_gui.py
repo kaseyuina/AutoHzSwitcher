@@ -7,6 +7,7 @@ import time # 🚨 再試行時の遅延/ウィンドウ操作のために残す
 # import random # 🚨 スタブでのみ使用されていたため削除
 from typing import Optional, Dict, Any, List
 import threading 
+from PIL import Image, ImageTk
 
 # ----------------------------------------------------------------------
 # 🚨 修正点: 外部依存のスタブを削除し、実際のユーティリティをインポートします
@@ -100,7 +101,8 @@ class HzSwitcherApp:
         
         master.title(self.lang.get("app_title"))
         
-        master.geometry("750x750") 
+        #master.geometry("750x950") 
+        master.minsize(750, 780) 
         master.config(bg=DARK_BG) 
         
         self.style = ttk.Style(master)
@@ -165,6 +167,39 @@ class HzSwitcherApp:
         main_frame = ttk.Frame(self.master)
         main_frame.pack(padx=10, pady=10, fill='both', expand=True) 
         
+        # ★★★ ここにアプリロゴの表示を追加 ★★★
+        LOGO_FILE_NAME = "logo_tp.png" 
+        try:
+            logo_image = Image.open(LOGO_FILE_NAME)
+            
+            # 💡 修正点: ロゴのサイズを調整 
+            MAX_HEIGHT = 100 # 最大高さを50ピクセルに設定
+            width, height = logo_image.size
+            #print(f"DEBUG: Original logo size: {width}x{height}") # 元サイズを確認
+            
+            if height > MAX_HEIGHT:
+                new_width = int(width * (MAX_HEIGHT / height))
+                logo_image = logo_image.resize((new_width, MAX_HEIGHT), Image.Resampling.LANCZOS)
+                #print(f"DEBUG: Resized logo size: {new_width}x{MAX_HEIGHT}") # リサイズ後サイズを確認
+            #else:
+                #print(f"DEBUG: Logo size OK, no resize needed: {width}x{height}")
+            
+            self.tk_logo = ImageTk.PhotoImage(logo_image)
+
+            logo_label = ttk.Label(main_frame, image=self.tk_logo) 
+            #logo_label = ttk.Label(main_frame, image=self.tk_logo, style='TFrame') 
+            logo_label.pack(pady=(0, 15)) 
+
+        except Exception as e:
+            print(f"Warning: Failed to load app logo {LOGO_FILE_NAME}: {e}")
+            # ロゴが見つからない場合は代わりにタイトルテキストを表示
+            logo_label = ttk.Label(main_frame, 
+                                   text=self.lang.get('app_title'), 
+                                   font=('Helvetica', 16, 'bold'), # 少し大きめのフォント
+                                   style='TLabel')
+            logo_label.pack(pady=(0, 15))
+        # ★★★★★★★★★★★★★★★★★★★★★★★★★★
+
         # 🚨 [言語設定] ドロップダウン 
         lang_frame = ttk.Frame(main_frame)
         lang_frame.pack(fill='x', pady=(0, 10))
@@ -254,9 +289,11 @@ class HzSwitcherApp:
         
         # ゲームリスト管理セクション (Treeview) ---
         game_list_frame = ttk.Frame(main_frame)
-        game_list_frame.pack(fill='both', expand=True, pady=5)
+        game_list_frame.pack(fill='both', pady=5)
+        #game_list_frame.pack(fill='both', expand=True, pady=5)
         
-        self.game_tree = ttk.Treeview(game_list_frame, columns=('Name', 'Process', 'HighRate'), show='headings', selectmode='browse')
+        self.game_tree = ttk.Treeview(game_list_frame, columns=('Name', 'Process', 'HighRate'), show='headings', selectmode='browse', height=8)
+        #self.game_tree = ttk.Treeview(game_list_frame, columns=('Name', 'Process', 'HighRate'), show='headings', selectmode='browse')
         
         # カラム設定
         self.game_tree.heading('Name', text=self.lang.get("game_name"))
@@ -285,7 +322,7 @@ class HzSwitcherApp:
         ttk.Button(button_frame, text=self.lang.get("delete"), command=self._delete_selected_game).pack(side='left', padx=5, fill='x', expand=True)
 
         # --- 手動操作セクション ---
-        
+        """
         ttk.Separator(main_frame, orient='horizontal').pack(fill='x', pady=10)
         
         manual_rate_frame = ttk.Frame(main_frame) 
@@ -299,7 +336,8 @@ class HzSwitcherApp:
         self.rate_dropdown.grid(row=0, column=1, padx=5, pady=5, sticky='w')
         
         ttk.Button(manual_rate_frame, text=self.lang.get("apply_change"), command=self.apply_rate_change).grid(row=0, column=2, padx=5, pady=5, sticky='e')
-        
+        """
+
         # 最終保存ボタン
         ttk.Button(main_frame, text=self.lang.get("save_apply"), command=self.save_all_settings, style='Accent.TButton').pack(fill='x', pady=(15, 5))
 
@@ -320,7 +358,7 @@ class HzSwitcherApp:
             # MainApplicationのメソッドを呼び出し、タスクトレイメニューを更新
             self.app.update_tray_language(new_lang_code) 
         # ------------------------------------------------------------------
-        
+
         # 2. LanguageManagerを新しい言語で再初期化
         self.lang = LanguageManager(new_lang_code)
         
@@ -372,6 +410,26 @@ class HzSwitcherApp:
         editor = tk.Toplevel(self.master)
         editor.title(self.lang.get("game_editor_title"))
         editor.config(bg=DARK_BG)
+        # _open_game_editor メソッドの最初の方に追加
+        # メイン画面で使用するレートリストを取得
+        try:
+            # メイン画面のグローバル高Hz用 Combobox から直接 values を取得する
+            # self.global_high_rate_combobox は _create_widgets で定義済み
+            rates_list = self.global_high_rate_combobox['values'] 
+            
+            # 取得した values がタプルや空でないことを確認
+            if not rates_list:
+                # values が空だった場合のフォールバック
+                raise AttributeError 
+                
+        except AttributeError:
+            # global_high_rate_combobox がまだ初期化されていない、または values が空の場合のフォールバック
+            # self.rate_display_values が使えるならこちらを使う
+            try:
+                rates_list = self.rate_display_values
+            except AttributeError:
+                # 最終フォールバック
+                rates_list = [60, 120, 144, 165, 240, 360]
         
         if game_data is None:
             game_data = {
@@ -405,10 +463,27 @@ class HzSwitcherApp:
 
         # Row 2: ゲーム中Hz
         ttk.Label(editor_frame, text=self.lang.get("game_high_rate") + ":").grid(row=2, column=0, **padding, sticky='w') 
-        rate_input_frame = ttk.Frame(editor_frame)
-        rate_input_frame.grid(row=2, column=1, **padding, sticky='ew')
-        ttk.Entry(rate_input_frame, textvariable=high_rate_var, width=10).pack(side='left', fill='x', expand=True)
-        ttk.Label(rate_input_frame, text=self.lang.get("status_hz")).pack(side='left', padx=(5,0))
+        # Combobox の作成 (padx, pady は padding から自動で適用)
+        game_rate_combobox = ttk.Combobox(
+            editor_frame, 
+            textvariable=high_rate_var, 
+            values=rates_list, 
+            width=8, 
+            state='readonly'
+        )
+        game_rate_combobox.grid(row=2, column=1, **padding, sticky='w') # ここは **padding を残す
+        # Hz ラベルを Combobox の右側に配置
+        # **padding を削除し、pady のみ適用し、padx は新しい値を指定する
+        ttk.Label(editor_frame, text=self.lang.get("status_hz")).grid(
+            row=2, 
+            column=1, 
+            pady=padding['pady'], # pady のみ継承
+            sticky='e', 
+            padx=(0, padding['padx']) # 独自の padx を指定
+        )
+        #rate_input_frame.grid(row=2, column=1, **padding, sticky='ew')
+        #ttk.Entry(rate_input_frame, textvariable=high_rate_var, width=10).pack(side='left', fill='x', expand=True)
+        #ttk.Label(rate_input_frame, text=self.lang.get("status_hz")).pack(side='left', padx=(5,0))
 
         # Row 3: 有効チェック
         ttk.Checkbutton(editor_frame, text=self.lang.get("enable_monitoring"), variable=enabled_var).grid(row=3, column=0, columnspan=3, **padding, sticky='w') 
@@ -817,6 +892,7 @@ class HzSwitcherApp:
             self.global_high_rate_combobox.set("")
 
         # --- (3) 手動変更テスト用 Combobox の更新 ---
+        """
         hz_text = self.lang.get("status_hz") 
         manual_rate_display_values = [f"{r}{hz_text}" for r in rates]
         self.rate_dropdown['values'] = manual_rate_display_values
@@ -827,6 +903,7 @@ class HzSwitcherApp:
             self.selected_rate.set(rates[-1]) 
         else:
             self.rate_dropdown.set("")
+        """
             
     def apply_rate_change(self):
         """選択された設定でchange_rate関数を呼び出します。(手動テスト用)"""
@@ -885,8 +962,8 @@ class HzSwitcherApp:
 
         global_high_rate_value = None
         use_global_high = self.use_global_high_rate.get()
-        if use_global_high:
-            global_high_rate_value = self.global_high_rate.get()
+        #if use_global_high:
+        global_high_rate_value = self.global_high_rate.get()
             
         new_settings = {
             "selected_monitor_id": monitor_id,
