@@ -12,8 +12,12 @@ from PIL import Image, ImageTk
 # ----------------------------------------------------------------------
 # 🚨 修正点: 外部依存のスタブを削除し、実際のユーティリティをインポートします
 # ----------------------------------------------------------------------
-from switcher_utility import get_monitor_capabilities, change_rate, get_running_processes
-# ----------------------------------------------------------------------
+# 変更前:
+# from switcher_utility import get_monitor_capabilities, change_rate, get_running_processes
+
+# 変更後:
+from switcher_utility import get_monitor_capabilities, change_rate, get_running_processes_detailed
+# ☝️ ここを 'get_running_processes_detailed' に修正
 
 # --- ダークテーマ用のカラーパレット定義 (変更なし) ---
 DARK_BG = '#2b2b2b'         
@@ -102,7 +106,7 @@ class HzSwitcherApp:
         master.title(self.lang.get("app_title"))
         
         #master.geometry("750x950") 
-        master.minsize(750, 780) 
+        master.minsize(750, 730) 
         master.config(bg=DARK_BG) 
         
         self.style = ttk.Style(master)
@@ -232,10 +236,15 @@ class HzSwitcherApp:
         # 監視有効/無効のチェックボックス
         monitoring_control_frame = ttk.Frame(main_frame)
         monitoring_control_frame.pack(fill='x', pady=(0, 10), padx=0) 
-        
+
         ttk.Label(monitoring_control_frame, text=self.lang.get("monitoring_title"), font=('Helvetica', COMMON_FONT_SIZE, 'bold')).pack(anchor='w', padx=5, pady=(5, 0))
-        ttk.Checkbutton(monitoring_control_frame, text=self.lang.get("enable_monitoring"), variable=self.is_monitoring_enabled).pack(anchor='w', padx=5, pady=(0, 5))
-        
+        #ttk.Checkbutton(monitoring_control_frame, text=self.lang.get("enable_monitoring"), variable=self.is_monitoring_enabled).pack(anchor='w', padx=5, pady=(0, 5))
+        ttk.Checkbutton(
+            monitoring_control_frame, 
+            text=self.lang.get("enable_monitoring"), 
+            variable=self.is_monitoring_enabled,
+            command=self._toggle_monitoring  # ★ command を追加 ★
+        ).pack(anchor='w', padx=5, pady=(0, 5))        
         ttk.Separator(main_frame, orient='horizontal').pack(fill='x', pady=5)
         
         # --- グローバルモニター・レート設定 ---
@@ -259,6 +268,7 @@ class HzSwitcherApp:
         ttk.Label(global_monitor_frame, text=self.lang.get("idle_low_rate")).grid(row=1, column=2, padx=(5, 5), pady=5, sticky='w')
         self.low_rate_combobox = ttk.Combobox(global_monitor_frame, textvariable=self.default_low_rate, state='readonly', width=10) 
         self.low_rate_combobox.grid(row=1, column=3, padx=(0, 0), pady=5, sticky='w') 
+        self.low_rate_combobox.bind('<<ComboboxSelected>>', self.update_all_rate_dropdowns)
         ttk.Label(global_monitor_frame, text=self.lang.get("status_hz")).grid(row=1, column=4, padx=(0, 5), pady=5, sticky='w') 
 
         # row 2: 解像度 / グローバル高Hz
@@ -274,13 +284,13 @@ class HzSwitcherApp:
             command=self.toggle_global_high_rate_combobox
         )
         self.global_high_rate_check.grid(row=2, column=2, padx=(5, 5), pady=5, sticky='w') 
-
         self.global_high_rate_combobox = ttk.Combobox(global_monitor_frame, textvariable=self.global_high_rate, state='readonly', width=10) 
         self.global_high_rate_combobox.grid(row=2, column=3, padx=(0, 0), pady=5, sticky='w')
-        
+        self.global_high_rate_combobox.bind('<<ComboboxSelected>>', self.update_all_rate_dropdowns)
+
         ttk.Label(global_monitor_frame, text=self.lang.get("status_hz")).grid(row=2, column=4, padx=(0, 5), pady=5, sticky='w')
 
-        self.toggle_global_high_rate_combobox()
+        #self.toggle_global_high_rate_combobox()
 
         ttk.Separator(main_frame, orient='horizontal').pack(fill='x', pady=5)
         
@@ -358,14 +368,22 @@ class HzSwitcherApp:
         """
 
         # 最終保存ボタン
-        ttk.Button(main_frame, text=self.lang.get("save_apply"), command=self.save_all_settings, style='Accent.TButton').pack(fill='x', pady=(15, 5))
+        #ttk.Button(main_frame, text=self.lang.get("save_apply"), command=self.save_all_settings, style='Accent.TButton').pack(fill='x', pady=(15, 5))
 
         self.master.protocol("WM_DELETE_WINDOW", self.master.withdraw) 
         
         
     def _change_language(self, event):
-        """言語ドロップダウンが変更されたときに言語を切り替える処理。"""
+        """
+        言語ドロップダウンが変更されたときに言語を切り替える処理。
+        ★ 修正: 現在の設定と同じ言語が選択された場合は処理をスキップ ★
+        """
         new_lang_code = self.selected_language_code.get()
+        current_lang_code = self.app.settings.get("language") # 現在の設定から言語コードを取得
+        
+        # 💡 修正点 1: 選択された言語が現在の設定と同じ場合は、処理を中断
+        if new_lang_code == current_lang_code:
+            return # 処理を終了し、以降の保存やタスクトレイの更新を行わない
         
         # 1. 設定を保存
         self.app.settings["language"] = new_lang_code
@@ -399,11 +417,18 @@ class HzSwitcherApp:
         )
 
     def toggle_global_high_rate_combobox(self):
-        """チェックボックスの状態に応じて、グローバル高HzのComboboxの有効/無効を切り替えます。"""
+        """
+        チェックボックスの状態に応じて、グローバル高HzのComboboxの有効/無効を切り替えます。
+        ★ 変更後、設定を自動保存・適用するように修正 ★
+        """
         if self.use_global_high_rate.get():
             self.global_high_rate_combobox.config(state='readonly')
         else:
             self.global_high_rate_combobox.config(state='disabled')
+            
+        # 💡 追加: 状態変更後、レートドロップダウンの更新処理を呼び出す
+        #    (この中で設定値の収集・保存・適用が行われる)
+        self.update_all_rate_dropdowns(None)
 
     # --- _draw_game_list メソッド全体 ---
     def _draw_game_list(self):
@@ -602,41 +627,161 @@ class HzSwitcherApp:
         
     
     def _open_process_selector(self, target_var: tk.StringVar):
-        """実行中のプロセス一覧を表示し、選択されたプロセス名を実行ファイル名として設定します。"""
+        """実行中のプロセス一覧を表示し、選択されたプロセス名を実行ファイル名として設定します。（マルチスレッド対応版）"""
+        
+        # 💡 スレッド処理のために import threading が必要です
+        
         selector = tk.Toplevel(self.master)
         selector.title(self.lang.get("process_selector_title"))
         selector.config(bg=DARK_BG)
-        selector.geometry("600x400")
+        selector.geometry("800x600") 
         
         main_frame = ttk.Frame(selector)
         main_frame.pack(padx=10, pady=10, fill='both', expand=True)
         
-        # Treeviewのセットアップ
+        # --- ソート状態を保持するための変数 (メソッド内でローカルに定義) ---
+        # 初期ソートはメモリ降順を維持
+        current_sort_col = 'Memory'  
+        current_sort_reverse = True  
+        # -------------------------------------------------------------------
+
+        # Treeviewのセットアップ (ソート処理やヘルパー関数より先に定義が必要)
         tree_frame = ttk.Frame(main_frame)
         tree_frame.pack(fill='both', expand=True, pady=(0, 5))
         
-        process_tree = ttk.Treeview(tree_frame, columns=('Name', 'Path'), show='headings', selectmode='browse')
+        process_tree = ttk.Treeview(tree_frame, columns=('Name', 'Path', 'CPU', 'Memory'), show='headings', selectmode='browse')
         
-        process_tree.heading('Name', text=self.lang.get("process_name"))
-        process_tree.heading('Path', text=self.lang.get("process_path"))
+        scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", command=process_tree.yview)
+        process_tree.configure(yscrollcommand=scrollbar.set)
+        
+        # --- ヘルパー関数: ステータスラベルの制御 ---
+        def update_status_label(is_loading):
+            """Treeviewの代わりにステータスメッセージを表示/非表示する"""
+            if is_loading:
+                loading_message = self.lang.get("loading_processes", "プロセスを読み込み中...")
+                
+                # 修正済み: ttk.Labelにnameを渡し、packの引数からnameを削除
+                loading_label = ttk.Label(tree_frame, text=loading_message, anchor='center', name='loading_label')
+                loading_label.pack(fill='both', expand=True, pady=20, padx=20) 
+                
+                process_tree.pack_forget() 
+                scrollbar.pack_forget()    
+            else:
+                try:
+                    tree_frame.nametowidget('loading_label').destroy()
+                except KeyError:
+                    pass 
+                process_tree.pack(side='left', fill='both', expand=True)
+                scrollbar.pack(side='right', fill='y')                   
+
+        # --- ソート処理の実装 ---
+        def _sort_treeview(tree, col, reverse):
+            nonlocal current_sort_col, current_sort_reverse
+            
+            is_same_column = (col == current_sort_col)
+            
+            # 💡 修正点: クリックされたカラムが前回と異なる場合、ソート方向をリセット
+            if not is_same_column:
+                # 実行ファイル名 ('Name') のみ、初期ソート方向を昇順 (False) に設定
+                if col == 'Name':
+                    reverse = False
+                # その他のカラム (CPU, Memory) は降順 (True) から開始
+                else:
+                    reverse = True
+            
+            # データを取得
+            data_list = [(tree.set(item, col), item) for item in tree.get_children('')]
+            
+            # ソートキーに基づいて値を抽出・変換
+            def sort_key(item_tuple):
+                value_str = item_tuple[0]
+                if col in ('CPU', 'Memory'):
+                    try:
+                        numeric_part = value_str.split(' ')[0].replace('%', '')
+                        return float(numeric_part)
+                    except ValueError:
+                        return 0.0
+                else:
+                    return value_str.lower()
+
+            data_list.sort(key=sort_key, reverse=reverse)
+            
+            # データをTreeviewに再配置
+            for index, (val, item) in enumerate(data_list):
+                tree.move(item, '', index)
+
+            # ヘッダーにソート方向を示す記号を再設定
+            # 💡 次にクリックされたときの方向をバインド
+            tree.heading(col, command=lambda: _sort_treeview(tree, col, not reverse)) 
+            
+            # 全てのヘッダーのソートインジケーターをリセット
+            for c in tree['columns']:
+                text = tree.heading(c, 'text')
+                if text.startswith('▼') or text.startswith('▲'):
+                    tree.heading(c, text=text[1:])
+            
+            # 現在のソートカラムに矢印を追加
+            arrow = '▼' if reverse else '▲'
+            tree.heading(col, text=arrow + tree.heading(col, 'text'))
+
+            # 💡 記憶変数を更新
+            current_sort_col = col
+            current_sort_reverse = reverse
+
+        # --- ヘルパー関数: データ反映 (変更なし) ---
+        def update_tree_with_data(process_list):
+            """別スレッドで取得したデータをメインスレッドでTreeviewに反映する"""
+            
+            for item in process_tree.get_children():
+                process_tree.delete(item)
+            
+            for index, proc in enumerate(process_list):
+                cpu_display = f"{proc.get('cpu', 0.0):.1f}%"
+                memory_display = f"{proc.get('memory', 0)} MB"
+                
+                if proc.get('cpu') is None: cpu_display = "N/A"
+                if proc.get('memory') is None: memory_display = "N/A"
+                
+                process_tree.insert('', 'end', 
+                    iid=str(index), 
+                    values=(proc.get('name', 'N/A'), proc.get('path', 'N/A'), cpu_display, memory_display)
+                )
+            
+            _sort_treeview(process_tree, current_sort_col, current_sort_reverse)
+            update_status_label(False) 
+
+
+        # --- ヘルパー関数: プロセス取得スレッド ---
+        def fetch_processes_in_thread():
+            """プロセスリストを取得する高負荷な処理を別スレッドで実行する"""
+            # 💡 修正点: get_running_processes() を get_running_processes_detailed() に変更
+            process_list = get_running_processes_detailed() 
+            selector.after(0, lambda: update_tree_with_data(process_list))
+
+
+        # --- populate_process_tree (スレッド開始関数) ---
+        def populate_process_tree(tree: ttk.Treeview):
+            """プロセス取得を開始する（メインスレッドから別スレッドを起動）"""
+            update_status_label(True) 
+            
+            for item in tree.get_children():
+                tree.delete(item)
+            
+            threading.Thread(target=fetch_processes_in_thread, daemon=True).start()
+
+
+        # --- Treeviewのヘッダー/カラム設定 (変更なし) ---
+        process_tree.heading('Name', text=self.lang.get("exec_name"), command=lambda: _sort_treeview(process_tree, 'Name', False))
+        process_tree.heading('Path', text=self.lang.get("exec_path"))
+        process_tree.heading('CPU', text=self.lang.get("cpu_usage"), command=lambda: _sort_treeview(process_tree, 'CPU', True))
+        process_tree.heading('Memory', text=self.lang.get("memory_usage"), command=lambda: _sort_treeview(process_tree, 'Memory', True))
         
         process_tree.column('Name', width=150, anchor='w', stretch=False)
         process_tree.column('Path', width=350, anchor='w', stretch=True)
+        process_tree.column('CPU', width=70, anchor='e', stretch=False)
+        process_tree.column('Memory', width=90, anchor='e', stretch=False)
         
-        process_tree.pack(side='left', fill='both', expand=True)
-
-        scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", command=process_tree.yview)
-        scrollbar.pack(side='right', fill='y')
-        process_tree.configure(yscrollcommand=scrollbar.set)
-        
-        def populate_process_tree(tree: ttk.Treeview):
-            for item in tree.get_children():
-                tree.delete(item)
-            # 🚨 修正点: インポートした get_running_processes を使用
-            process_list = get_running_processes() 
-            for index, proc in enumerate(process_list):
-                tree.insert('', 'end', iid=str(index), values=(proc.get('name', 'N/A'), proc.get('path', 'N/A')))
-
+        # --- Select, Refresh, Cancelの各関数 (変更なし) ---
         def select_process():
             selected_item = process_tree.selection()
             if not selected_item:
@@ -650,9 +795,10 @@ class HzSwitcherApp:
                 selector.destroy()
 
         def refresh_list():
+            """更新ボタン - 現在のソート状態を維持したままプロセスリストを再取得"""
             populate_process_tree(process_tree)
 
-        # --- ボタンフレーム ---
+        # --- ボタンフレーム (変更なし) ---
         button_frame = ttk.Frame(main_frame)
         button_frame.pack(fill='x', pady=5)
         
@@ -664,9 +810,10 @@ class HzSwitcherApp:
         ttk.Button(button_frame, text=self.lang.get("select"), command=select_process, style='Accent.TButton').grid(row=0, column=1, padx=5, sticky='ew')
         ttk.Button(button_frame, text=self.lang.get("cancel"), command=selector.destroy).grid(row=0, column=2, padx=5, sticky='ew')
 
+        # 💡 初期データ投入 (非同期で開始)
         populate_process_tree(process_tree)
         
-        # モーダル化と中央表示
+        # モーダル化と中央表示 (変更なし)
         selector.update_idletasks()
         w = selector.winfo_width()
         h = selector.winfo_height()
@@ -703,6 +850,9 @@ class HzSwitcherApp:
             self._show_notification(self.lang.get("notification_error"), self.lang.get("error_game_data_not_found"), is_error=True)
 
     def _delete_selected_game(self):
+        """
+        選択されたゲームをリストから削除し、設定を保存し、監視がONの場合はレートを即座に再評価します。
+        """
         selected_item = self.game_tree.selection()
         if not selected_item:
             self._show_notification(self.lang.get("notification_warning"), self.lang.get("warning_select_game"), is_error=False)
@@ -714,18 +864,29 @@ class HzSwitcherApp:
         except ValueError:
             return
 
+        # 削除確認ダイアログ
         if self._askyesno_custom(self.lang.get("confirm"), self.lang.get("confirm_delete_game")):
             games_list = self.app.settings.get("games", [])
             
             if 0 <= index < len(games_list):
+                
+                # 1. データ削除と設定保存
                 del games_list[index]
                 self.app.settings["games"] = games_list
                 self.app.save_settings(self.app.settings) 
+                
+                # 2. GUIの再描画と通知
                 self._draw_game_list() 
                 self._show_notification(self.lang.get("notification_success"), self.lang.get("success_game_deleted"), is_error=False)
+                
+                # 3. 監視ONの場合、即座にレートを再評価
+                if self.is_monitoring_enabled.get():
+                    # MainApplicationに新しく追加したメソッドを呼び出し、プロセスチェックとレート適用を指示
+                    if hasattr(self.app, 'check_and_apply_rate_based_on_games'):
+                        self.app.check_and_apply_rate_based_on_games() 
+                    
             else:
                 self._show_notification(self.lang.get("notification_error"), self.lang.get("error_game_data_not_found"), is_error=True)
-
 
     # --- 独自の通知関数 ---
     def _show_notification(self, title: str, message: str, is_error: bool = False):
@@ -976,6 +1137,10 @@ class HzSwitcherApp:
         else:
             self.rate_dropdown.set("")
         """
+        #  💡 設定の適用: 変更されたレートをシステムに適用
+        # （このメソッド名は実際のアプリケーションの構造に合わせて変更してください）
+        #self.app.apply_current_rate_settings() 
+        self.save_all_settings()
             
     def apply_rate_change(self):
         """選択された設定でchange_rate関数を呼び出します。(手動テスト用)"""
@@ -1054,7 +1219,7 @@ class HzSwitcherApp:
         
         self.app.save_settings(current_settings)
         
-        self._show_notification(self.lang.get("notification_success"), self.lang.get("success_settings_saved"))
+        #self._show_notification(self.lang.get("notification_success"), self.lang.get("success_settings_saved"))
 
     def _validate_game_rates(self, new_monitor_modes: list) -> bool:
         """
@@ -1127,8 +1292,6 @@ class HzSwitcherApp:
         
         # 3. 制御: #0 列 (有効/無効のチェックボックス列) がクリックされた場合のみ続行
         if column_id != '#0':
-            # #0 列以外がクリックされた場合は、選択状態を変えるだけで、
-            # 有効/無効の切り替えは行わずに処理を終了する
             return
 
         # iid は str(index) なので、int に変換
@@ -1147,10 +1310,45 @@ class HzSwitcherApp:
             
             # 設定を保存
             self.app.settings["games"] = games_list
+            # 注意: self.app.save_settings(self.app.settings) は、
+            #       self.app._save_settings() や self.app.save_settings() と
+            #       実装が異なる可能性があるため、実装に合わせて調整してください。
             self.app.save_settings(self.app.settings)
             
             # GUIを更新してチェックボックスの表示を反映
             self._draw_game_list()
+            
+            # 💡 ステップ 2 の追加: ゲームの有効/無効が変更されたら、レートを即座に再評価する
+            #    ゲームが無効化され、他に高レートのゲームがなければ、低レートに戻る
+            self.app.check_and_apply_rate_based_on_games() # <--- この呼び出しを追加
+            print(f"INFO: ゲーム設定 '{games_list[index].get('name', 'Unknown')}' の有効/無効を {new_state} に切り替えました。レートを再評価します。")
+
+    def _toggle_monitoring(self):
+        """
+        監視設定トグルの状態変更時に呼び出され、設定を保存し、
+        親アプリに監視モードの更新を指示します。
+        """
+        is_enabled = self.is_monitoring_enabled.get()
+        
+        # 1. 設定の更新 (GUI変数から親アプリの設定変数へ)
+        #    ※他の設定項目は save_all_settings でまとめて保存されるため、
+        #      ここではトグル変数のみを settings に反映させます。
+        self.app.settings["is_monitoring_enabled"] = is_enabled
+        
+        # 2. 設定の保存
+        self.app.save_settings(self.app.settings)
+        
+        # 3. 監視モードの適用 (親アプリの監視スレッドを操作するメソッドを呼び出す)
+        #    ※前回 'update_monitoring_mode' がエラーになりましたが、
+        #      ここでは仮に 'toggle_monitoring_service' のような既存の適切なメソッドを呼び出します。
+        #      正しいメソッド名が不明な場合は、一旦この呼び出しはコメントアウトするか、
+        #      前回エラーになったメソッド名を使用し、後で MainApplication 側で定義します。
+        
+        # 仮のメソッド呼び出し (あなたの MainApplication にある適切なメソッドに置き換えてください)
+        if hasattr(self.app, 'apply_monitoring_toggle'):
+            self.app.apply_monitoring_toggle(is_enabled)
+        # else:
+            # print(f"INFO: MainApplication has no apply_monitoring_toggle method.")
             
 if __name__ == '__main__':
     # 動作確認用のメインループ

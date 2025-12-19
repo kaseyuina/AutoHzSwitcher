@@ -63,5 +63,11 @@
     "menu_open_settings": "設定を開く",
     "menu_exit": "終了",
     "menu_disable_monitoring": "モニタリングを無効化する",
-    "menu_enable_monitoring": "モニタリングを有効化する"
+    "menu_enable_monitoring": "モニタリングを有効化する",
+    "enable_abbr": "有効",
+    "exec_name": "実行ファイル名",
+    "exec_path": "実行パス",
+    "cpu_usage": "CPU",
+    "memory_usage": "メモリ",
+    "loading_processes": "プロセスを読み込み中..."
 }
