@@ -8,11 +8,50 @@ import os
 import re
 import json
 import psutil # <- プロセス情報を取得するためのライブラリ
+import time
+import logging # ログ記録のために追加
 from typing import List, Dict, Any, Set # 型ヒントのために追加
+
+def resource_path(relative_path):
+    """
+    PyInstallerでバンドルされた環境、または通常のPython環境のいずれで実行されても、
+    リソースファイルへの正しい絶対パスを取得します。
+    """
+    # PyInstaller環境では、リソースは一時フォルダに展開され、そのパスが sys._MEIPASS に格納される
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        base_path = sys._MEIPASS
+    # 通常のPython環境の場合
+    else:
+        # スクリプトがあるディレクトリをベースパスとする
+        base_path = os.path.abspath(os.path.dirname(__file__))
+    
+    # ベースパスと相対パスを結合して絶対パスを作成
+    return os.path.join(base_path, relative_path)
+
+# -------------------------------------------------------------
+# 例：他のモジュールで利用できるように、パスを解決した定数を定義する
+# -------------------------------------------------------------
+
+# 言語ファイル
+JA_JSON_PATH = resource_path("ja.json")
+EN_JSON_PATH = resource_path("en.json")
+
+# 画像ファイル
+LOGO_PNG_PATH = resource_path("logo_tp.png")
+APP_ICON_PNG_PATH = resource_path("app_icon.png")
+APP_ICON_ICO_PATH = resource_path("app.ico")
+
+# 外部実行ファイル
+RESOLUTION_SWITCHER_EXE_PATH = resource_path("ResolutionSwitcher.exe")
+
+# ※ hz_switcher_config.json は実行時に作成されるため、resource_pathは使わず、
+#    os.path.join(os.path.dirname(sys.executable), "hz_switcher_config.json")
+#    のように、実行ファイルと同じディレクトリを参照する必要があります。
 
 # --- Configuration Settings (Constants) ---
 # 相対パスを使用 (動作確認済み)
-SWITCHER_PATH = r"ResolutionSwitcher" 
+#SWITCHER_PATH = r"ResolutionSwitcher" 
+SWITCHER_PATH = RESOLUTION_SWITCHER_EXE_PATH
 
 # --- Core Utility Function: Get Monitor Modes (変更なし) ---
 
@@ -189,10 +228,10 @@ def get_current_active_rate(monitor_id: str) -> int | None:
 
 # --- Core Utility Function: Change Rate (元のロジックを維持) ---
 
-def change_rate(target_rate: int, width: int, height: int, monitor_id: str) -> bool:
+def change_rate(target_rate: int, width: int, height: int, monitor_id: str, max_retries: int = 3, retry_delay: float = 0.5) -> bool:
     """
     指定されたモニターのリフレッシュレートを変更します。
-    メイン監視ループ (_enforce_rate) から呼び出されます。
+    外部ツール呼び出しが失敗した場合、最大回数まで再試行します。
     """
     rs_args = (
         f'--monitor "{monitor_id}" '
@@ -205,30 +244,50 @@ def change_rate(target_rate: int, width: int, height: int, monitor_id: str) -> b
         f'"{SWITCHER_PATH}" {rs_args}'
     )
     
+    # ロギング/コンソール出力は、再試行ロジックの外部で最初に行う
     print(f"Executing command: {full_command}")
+    # logging.info(f"Attempting command: {full_command}") # ロギングを使用する場合
 
-    try:
-        # shell=True を使用してコマンドを実行 (元のコードに従う)
-        result = subprocess.run(full_command, check=False, shell=True, 
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
-                                text=True, encoding='cp932') 
-
-        error_output = result.stderr.strip() if result.stderr else "（出力なし）"
-        
-        if result.returncode == 0:
-            print(f"✅ Success: Monitor {monitor_id} changed to {target_rate}Hz.")
-            return True
-        else:
-            print(f"❌ Error changing rate: command returned non-zero exit status {result.returncode}.")
-            print(f"Error output: {error_output}") 
-            return False
+    for attempt in range(max_retries):
+        if attempt > 0:
+            # 2回目以降の試行
+            print(f"⚠️ Rate change failed. Retrying in {retry_delay}s... (Attempt {attempt + 1}/{max_retries})")
+            time.sleep(retry_delay)
             
-    except FileNotFoundError:
-        print(f"❌ FATAL ERROR: {SWITCHER_PATH} not found.")
-        return False
-    except Exception as e:
-        print(f"❌ Unexpected error during rate change: {e}")
-        return False
+        try:
+            # shell=True を使用してコマンドを実行 (元のコードに従う)
+            result = subprocess.run(
+                full_command, 
+                check=False, 
+                shell=True, 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.PIPE, 
+                text=True, 
+                encoding='cp932'
+            ) 
+
+            error_output = result.stderr.strip() if result.stderr else "（出力なし）"
+            
+            if result.returncode == 0:
+                print(f"✅ Success: Monitor {monitor_id} changed to {target_rate}Hz on attempt {attempt + 1}.")
+                return True # 成功した場合は True を返して終了
+            else:
+                # 外部ツールが非ゼロコードを返したが、まだ再試行回数が残っている場合
+                print(f"❌ Error: Command returned non-zero exit status {result.returncode}. Output: {error_output}")
+                # ループの先頭に戻り、次の attempt を実行
+                continue 
+            
+        except FileNotFoundError:
+            print(f"❌ FATAL ERROR: {SWITCHER_PATH} not found. Stopping retries.")
+            return False # 致命的なエラーは再試行せず終了
+        except Exception as e:
+            print(f"❌ Unexpected error during rate change attempt {attempt + 1}: {e}")
+            # 予期せぬエラーでも、再試行回数が残っていれば継続
+            continue 
+
+    # 最大再試行回数を使い切った場合
+    print(f"❌ FINAL FAILURE: Failed to change rate to {target_rate}Hz after {max_retries} attempts.")
+    return False # 最終的な失敗
 
 # -------------------------------------------------------------------
 # --- Core Utility Function: Get Running Processes (GUI実装の基盤) ---

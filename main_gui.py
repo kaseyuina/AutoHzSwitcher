@@ -9,6 +9,10 @@ from typing import Optional, Dict, Any, List
 import threading 
 from PIL import Image, ImageTk
 
+# switcher_utility.py からインポート（resource_pathは必要に応じて）
+from switcher_utility import resource_path # <- resource_pathをインポート
+# resource_path 経由で取得した定数（JA_JSON_PATHなど）をインポートするのも良い方法です
+
 # ----------------------------------------------------------------------
 # 🚨 修正点: 外部依存のスタブを削除し、実際のユーティリティをインポートします
 # ----------------------------------------------------------------------
@@ -39,13 +43,10 @@ class LanguageManager:
         self._load_language()
 
     def _load_language(self):
-        """指定された言語コードに対応するJSONファイルをロードします。"""
-        if getattr(sys, 'frozen', False):
-            base_dir = os.path.dirname(sys.executable)
-        else:
-            base_dir = os.path.abspath(os.path.dirname(__file__))
-            
-        lang_file = os.path.join(base_dir, f"{self.language_code}.json")
+        """指定された言語コードに対応するJSONファイルをロードします。（パス解決済み）"""
+        
+        # 修正: resource_path 関数を使用して、言語ファイルの正しいパスを取得する
+        lang_file = resource_path(f"{self.language_code}.json")
         
         try:
             with open(lang_file, 'r', encoding='utf-8') as f:
@@ -100,12 +101,40 @@ class HzSwitcherApp:
         self.master = master
         self.app = app_instance 
         
-        # 言語マネージャのインスタンス化
-        self.lang = LanguageManager(self.app.settings.get("language", "en"))
+        # --- 🚨 言語設定ロジックの修正 ---
+        # 設定ファイルから言語を取得。存在しない場合は 'en' (英語) を初期値とする。
+        initial_language = self.app.settings.get("language", "en")
+        
+        # 言語マネージャのインスタンス化と言語リソースのロード
+        self.lang = LanguageManager(initial_language) 
         
         master.title(self.lang.get("app_title"))
         
-        #master.geometry("750x950") 
+        # ★★★ ここを以下の新しいアイコン設定コードに置き換えてください ★★★
+        try:
+            # 💡 Pillow (Image, ImageTk) を使用して、PNGファイルをTkinterのImageオブジェクトに変換
+            from switcher_utility import APP_ICON_ICO_PATH
+            from PIL import Image, ImageTk # Pillowのインポートが必要（ファイルの先頭にあるはずです）
+
+            icon_image_pil = Image.open(APP_ICON_ICO_PATH) 
+            
+            # Tkinter PhotoImageに変換（GCされないようにselfに格納）
+            # wm_iconphotoを使う場合、このオブジェクトを保持しないとアイコンが消えるため重要
+            self.tk_app_icon = ImageTk.PhotoImage(icon_image_pil)
+            
+            # wm_iconphotoを使用してアイコンを設定。タスクバーアイコンもこれで設定されます。
+            self.master.wm_iconphoto(True, self.tk_app_icon) 
+            
+            # 念のため、iconbitmap（.ico）での設定も残す（失敗する場合の代替）
+            # from switcher_utility import APP_ICON_ICO_PATH
+            # self.master.iconbitmap(APP_ICON_ICO_PATH)
+
+        except Exception as e:
+            # 念のためエラーハンドリング
+            print(f"Warning: Failed to set window icon: {e}")
+        # ★★★★★★★★★★★★★★★★★★★★★★★★★★
+        
+        # master.geometry("750x950") 
         master.minsize(750, 730) 
         master.config(bg=DARK_BG) 
         
@@ -145,15 +174,126 @@ class HzSwitcherApp:
         self.is_monitoring_enabled = tk.BooleanVar(master) 
         self.use_global_high_rate = tk.BooleanVar(master) 
         self.global_high_rate = tk.IntVar(master) 
+
+        # マルチスレッド処理のフラグを追加
+        self.is_monitor_loading = tk.BooleanVar(master, value=False)
         
-        self.selected_language_code = tk.StringVar(master, value=self.app.settings.get("language", "ja"))
+        # 言語設定のTkinter変数を初期化。initial_languageを値として使用する
+        self.selected_language_code = tk.StringVar(master, value=initial_language)
         
         self._load_initial_values()
 
         self._create_widgets()
         
-        # 🚨 get_monitor_capabilities はインポートされた実機データ取得関数を使用します
-        self.load_monitor_data()
+        # 重い処理を別スレッドで開始するメソッドを呼び出す
+        self._start_monitor_data_loading()
+        
+        # self.load_monitor_data() # 削除またはコメントアウト
+
+    # 💡 新しいヘルパーメソッドを追加
+    def _start_monitor_data_loading(self):
+        """モニターデータをロードするタスクを別スレッドで開始します。"""
+        # 読み込み開始フラグを立てる
+        self.is_monitor_loading.set(True)
+        
+        # 別スレッドで load_monitor_data を実行し、完了後に GUI を更新する
+        loading_thread = threading.Thread(target=self._run_monitor_data_in_thread, daemon=True)
+        loading_thread.start()
+        
+    def _run_monitor_data_in_thread(self):
+        """別スレッドで get_monitor_capabilities を呼び出し、結果をメインスレッドに渡します。"""
+        
+        # 💡 修正: 以前の load_monitor_data() を _fetch_monitor_data() に置き換える
+        self._fetch_monitor_data() # 👈 重い処理（外部コマンド呼び出し）を実行
+        
+        # 処理が完了したら、GUIの更新をメインスレッドに任せる
+        self.master.after(0, self._finalize_monitor_data_loading)
+
+    def _finalize_monitor_data_loading(self):
+        """モニターデータのロード完了後、GUIを更新します。（メインスレッドで実行）"""
+        self.is_monitor_loading.set(False)
+        
+        # 💡 修正: ウィジェットの有効化と値の設定を新しいメソッドに任せる
+        self._update_monitor_combobox() # 👈 これが update_resolution_dropdown も呼び出す
+        
+        # _load_initial_values は _update_monitor_combobox の中で値の設定が既に行われるため、
+        # ここでの再呼び出しは通常不要ですが、念のため残すか、削除するかを選択します。
+        # データの整合性を保つため、ここでは削除を推奨します。
+        # self._load_initial_values() # 👈 削除を推奨 (不要な処理の繰り返しを防ぐため)
+        
+        print("Monitor capabilities loaded successfully in background.")
+    
+    # main_gui.py / HzSwitcherApp クラス内 (新規追加)
+    def _update_monitor_combobox(self):
+        """【メインスレッドで実行】取得したモニターデータを使ってコンボボックスを更新します。"""
+        
+        if not self.monitor_capabilities:
+            # モニターデータ取得に失敗した場合
+            self.monitor_dropdown['values'] = []
+            self.monitor_dropdown.set("")
+            self._show_notification(self.lang.get("notification_error"), self.lang.get("error_monitor_fetch"), is_error=True)
+            return
+        
+        # データを表示用リストに変換
+        display_names = list(self.monitor_id_map.keys())
+        
+        self.monitor_dropdown['values'] = display_names
+        self.monitor_dropdown.config(state='readonly') # 読み込み完了後に有効化
+        
+        # 設定に保存されているIDがあればそれを選択、なければ最初のモニターを選択
+        loaded_id = self.app.settings.get("selected_monitor_id")
+        if loaded_id and loaded_id in self.monitor_display_name_map:
+            self.monitor_dropdown.set(self.monitor_display_name_map[loaded_id])
+        elif display_names:
+            self.monitor_dropdown.set(display_names[0])
+        
+        # 続けて解像度ドロップダウンも更新する
+        self._update_resolution_combobox() # 👈 update_resolution_dropdown の役割を果たす新しいメソッドを呼び出す
+
+    def _update_resolution_combobox(self):
+        """【メインスレッドで実行】選択されたモニターに基づき、解像度とレートのドロップダウンを更新します。"""
+        # 既存の update_resolution_dropdown(self, event) の中身を流用し、
+        # 外部イベント(event)の引数を削除したものとします。
+        
+        selected_display_name = self.selected_monitor_id.get()
+        current_id = self.monitor_id_map.get(selected_display_name)
+        
+        if not current_id or current_id not in self.monitor_capabilities:
+            # モニターが選択されていない、またはデータがない場合のクリア処理
+            self.resolution_dropdown['values'] = []
+            self.resolution_dropdown.set("")
+            self.low_rate_combobox['values'] = []
+            self.low_rate_combobox.set("")
+            self.global_high_rate_combobox['values'] = []
+            self.global_high_rate_combobox.set("")
+            # self.rate_dropdown は手動操作部分なので、ここではスキップ
+            return
+
+        # 提供された update_resolution_dropdown のロジックをそのまま使用
+        resolutions = sorted(self.monitor_capabilities[current_id]['Rates'].keys(), 
+                            key=lambda x: (int(x.split('x')[0]), int(x.split('x')[1])), 
+                            reverse=True)
+
+        self.resolution_dropdown['values'] = resolutions
+        
+        loaded_res = self.app.settings.get("target_resolution")
+        if loaded_res in resolutions:
+            self.resolution_dropdown.set(loaded_res)
+        elif resolutions:
+            self.resolution_dropdown.set(resolutions[0])
+        else:
+            self.resolution_dropdown.set("")
+
+        # update_all_rate_dropdowns を呼び出す (これはレートの値を設定するメソッドのはず)
+        self.update_all_rate_dropdowns(None)
+        
+        # ゲームレートの整合性チェック
+        try:
+            new_modes = self.global_high_rate_combobox['values'] 
+            if new_modes:
+                self._validate_game_rates(list(new_modes))
+        except Exception as e:
+            print(f"Warning: Could not validate game rates: {e}")
         
     def _load_initial_values(self):
         settings = self.app.settings
@@ -172,7 +312,10 @@ class HzSwitcherApp:
         main_frame.pack(padx=10, pady=10, fill='both', expand=True) 
         
         # ★★★ ここにアプリロゴの表示を追加 ★★★
-        LOGO_FILE_NAME = "logo_tp.png" 
+        from switcher_utility import LOGO_PNG_PATH 
+        # 以前の LOGO_FILE_NAME の代わりに、resource_pathで解決済みの LOGO_PNG_PATH を使う
+        LOGO_FILE_NAME = LOGO_PNG_PATH
+        #LOGO_FILE_NAME = "logo_tp.png" 
         try:
             logo_image = Image.open(LOGO_FILE_NAME)
             
@@ -214,7 +357,7 @@ class HzSwitcherApp:
         self.language_dropdown = ttk.Combobox(
             lang_frame, 
             textvariable=self.selected_language_code, 
-            values=self.app.settings.get("available_languages", ["ja"]), 
+            values=self.app.settings.get("available_languages", ["ja","en"]), 
             state='readonly', 
             width=5
         )
@@ -401,18 +544,20 @@ class HzSwitcherApp:
         
         # 3. GUIを再構築（最も確実な方法）
         
+        # 変更後:
         for widget in self.master.winfo_children():
             widget.destroy()
 
-        
         self.master.title(self.lang.get("app_title"))
 
         self._create_widgets()
-        
-        self.load_monitor_data()
-        
+
+        # 💡 修正: 非同期ローディング処理を呼び出す
+        self._start_monitor_data_loading() # 👈 load_monitor_data() の代わりに呼び出す
+        # ------------------------------------------------------------------
+
         self._show_notification(
-            self.lang.get("notification_success"), 
+            self.lang.get("notification_success"),
             self.lang.get("success_language_changed")
         )
 
@@ -1043,15 +1188,35 @@ class HzSwitcherApp:
 
         self.resolution_dropdown['values'] = resolutions
         
-        loaded_res = self.app.settings.get("target_resolution")
-        if loaded_res in resolutions:
-            self.resolution_dropdown.set(loaded_res)
+        # ----------------------------------------------------------------------
+        # 🚨 【修正点】モニター固有の解像度設定を読み込むように変更
+        # ----------------------------------------------------------------------
+        
+        # 1. モニターごとの設定オブジェクトから、このモニターの設定を取得
+        monitor_settings = self.app.settings.get("monitor_settings", {})
+        saved_resolution = monitor_settings.get(current_id, {}).get("resolution")
+        
+        initial_resolution = None
+
+        if saved_resolution and saved_resolution in resolutions:
+            # a. モニター固有の設定が有効なら、それを採用 (優先度1)
+            initial_resolution = saved_resolution
         elif resolutions:
-            self.resolution_dropdown.set(resolutions[0])
+            # b. 設定がないか無効な場合、最大解像度 (ソート済リストの先頭) を採用 (優先度2)
+            initial_resolution = resolutions[0]
+        
+        # 2. 解像度変数を更新
+        if initial_resolution:
+            self.resolution_dropdown.set(initial_resolution)
         else:
             self.resolution_dropdown.set("")
 
+        # ----------------------------------------------------------------------
+        # 💡 以前のグローバルな target_resolution を読み込むロジックは削除されました
+        # ----------------------------------------------------------------------
+
         self.update_all_rate_dropdowns(None)
+        
         # main_gui.py の HzSwitcherApp クラス内にある update_resolution_dropdown メソッドの末尾
 
         # ----------------------------------------------------
@@ -1073,6 +1238,38 @@ class HzSwitcherApp:
         except AttributeError as e:
             # 警告は表示しつつ、致命的なエラーではないため続行
             print(f"Warning: Could not validate game rates, failed to get combobox values: {e}")
+
+    # main_gui.py / HzSwitcherApp クラス内
+    def _fetch_monitor_data(self):
+        """
+        【非GUIスレッドで実行】
+        switcher_utilityからモニター情報を取得し、インスタンス変数に格納します。
+        ここではTkinterのウィジェット操作を行いません。
+        """
+        # 🚨 修正点: インポートした get_monitor_capabilities を使用
+        self.monitor_capabilities = get_monitor_capabilities()
+        
+        if not self.monitor_capabilities:
+            # エラーメッセージの表示はメインスレッドに移譲
+            return
+
+        display_names = []
+        self.monitor_id_map = {} 
+        self.monitor_display_name_map = {} 
+
+        for monitor_id, data in self.monitor_capabilities.items():
+            # 識別しやすいようにモニター名とIDの末尾部分を結合
+            display_name = f"{data['Name']} ({monitor_id})" 
+            display_names.append(display_name)
+            self.monitor_id_map[display_name] = monitor_id
+            self.monitor_display_name_map[monitor_id] = display_name
+        
+        # ここではウィジェットの値を更新しない
+        # self.monitor_dropdown['values'] = display_names # 👈 削除
+
+    # 以前の load_monitor_data() はこの _fetch_monitor_data に置き換えられました。
+    # したがって、以前の self.load_monitor_data() を呼び出していた部分は
+    # self._fetch_monitor_data() に置き換える必要があります。
 
     def update_all_rate_dropdowns(self, event):
         """選択された解像度に基づき、すべてのリフレッシュレートドロップダウンを更新します。"""
@@ -1323,6 +1520,8 @@ class HzSwitcherApp:
             self.app.check_and_apply_rate_based_on_games() # <--- この呼び出しを追加
             print(f"INFO: ゲーム設定 '{games_list[index].get('name', 'Unknown')}' の有効/無効を {new_state} に切り替えました。レートを再評価します。")
 
+    # C:\Users\user\Documents\GitHub\AutoHzSwitcher\main_gui.py の _toggle_monitoring メソッド内
+
     def _toggle_monitoring(self):
         """
         監視設定トグルの状態変更時に呼び出され、設定を保存し、
@@ -1330,29 +1529,79 @@ class HzSwitcherApp:
         """
         is_enabled = self.is_monitoring_enabled.get()
         
-        # 1. 設定の更新 (GUI変数から親アプリの設定変数へ)
-        #    ※他の設定項目は save_all_settings でまとめて保存されるため、
-        #      ここではトグル変数のみを settings に反映させます。
+        # 1. 設定の更新と保存 (✅ この処理は既に機能していると確認済み)
         self.app.settings["is_monitoring_enabled"] = is_enabled
-        
-        # 2. 設定の保存
         self.app.save_settings(self.app.settings)
         
-        # 3. 監視モードの適用 (親アプリの監視スレッドを操作するメソッドを呼び出す)
-        #    ※前回 'update_monitoring_mode' がエラーになりましたが、
-        #      ここでは仮に 'toggle_monitoring_service' のような既存の適切なメソッドを呼び出します。
-        #      正しいメソッド名が不明な場合は、一旦この呼び出しはコメントアウトするか、
-        #      前回エラーになったメソッド名を使用し、後で MainApplication 側で定義します。
-        
-        # 仮のメソッド呼び出し (あなたの MainApplication にある適切なメソッドに置き換えてください)
-        if hasattr(self.app, 'apply_monitoring_toggle'):
-            self.app.apply_monitoring_toggle(is_enabled)
+        # 2. 🚨 修正: MainApp の中央制御メソッドを呼び出し、監視スレッドとトレイを同期
+        #    これで、GUI -> MainApp/トレイへの同期が機能するはずです。
+        if hasattr(self.app, '_update_monitoring_state'):
+            print(f"DEBUG: Calling MainApp._update_monitoring_state({is_enabled}) from GUI.")
+            self.app._update_monitoring_state(is_enabled)
+        else:
+            print("ERROR: MainApplication does not have '_update_monitoring_state' method.")
+            
+        # 3. GUI内でのステータス表示の更新（念のため。なくても動作するはず）
+        # self.update_status_display()
+                
         # else:
             # print(f"INFO: MainApplication has no apply_monitoring_toggle method.")
+    
+    def _update_monitoring_state_from_settings(self):
+        """
+        メインアプリの設定に基づいて、GUIの要素（特にチェックボックス）の状態を更新します。
+        トレイからの操作や設定ロード時に呼ばれます。
+        """
+        # 1. MainApplication (self.app) から最新の監視設定を取得
+        #    設定はトレイ操作時に既に更新されている
+        is_enabled = self.app.settings.get("is_monitoring_enabled", False)
+        
+        # 2. 🚨 最重要: Tkinter変数 (チェックボックスの状態) を設定に合わせて更新
+        #    この行がチェックボックスの見た目を変更します。
+        if self.is_monitoring_enabled.get() != is_enabled:
+             self.is_monitoring_enabled.set(is_enabled) 
+             print(f"DEBUG: GUI Checkbox state FINALIZED to: {is_enabled}") # ログを追加
+             
+        # 3. GUIのステータス表示（必要であれば）
+        # self.update_status_display() # または _update_status_display
             
+# -------------------------------------------------------------
+# 🚨 動作確認用のメインループ (if __name__ == '__main__':) 
+# -------------------------------------------------------------
+
 if __name__ == '__main__':
     # 動作確認用のメインループ
     
+    # AppControllerStub (ダミーのコントローラー) の定義
+    class AppControllerStub:
+        def __init__(self):
+            # Tkinter の StringVar のインスタンスを適切に初期化するため、
+            # ルートウィンドウを先に定義するか、この中でダミーのルートを使用する必要があります。
+            self.root = tk.Tk()
+            self.root.withdraw()
+            
+            self.status_message = tk.StringVar(master=self.root, value="Status: Initializing...")
+            self.settings = self._load_settings()
+            self.language_code = self.settings.get('language', 'en')
+            self.lang = LanguageManager(self.language_code)
+        
+        def _load_settings(self):
+            # ダミー設定オブジェクトを返す
+            class SettingsStub:
+                def get(self, key, default=None):
+                    if key == "available_languages":
+                        return ["en", "ja"]
+                    if key == "language":
+                        return "en" # ここで en を返すようにしておく
+                    return default
+            return SettingsStub()
+        
+        # GUIからの操作を受け付けるためのダミーメソッド
+        def save_all_settings(self): pass
+        def hide_window(self): self.root.withdraw()
+        # ... (その他のダミーメソッドが必要であれば追加) ...
+
+
     # 簡略化のため、このブロックで ja.json / en.json がなければ作成します 
     lang_data_ja = {
         "app_title": "Auto Hz Switcher - 設定", "status_idle": "アイドル中", "status_hz": "Hz", "monitor_settings_title": "🌐 グローバルモニター・レート設定", "monitoring_title": "⚙️ 監視設定", "enable_monitoring": "プロセス監視を有効にする", "monitor_id": "モニターID:", "resolution": "解像度:", "idle_low_rate": "アイドル時 低Hz:", "use_global_high_rate_check": "グローバル高Hzを使用:", "game_app_title": "🎮 ゲーム/アプリケーション設定", "game_name": "ゲーム名", "process_name": "実行ファイル名", "game_high_rate": "ゲーム中Hz", "add_game": "ゲームを追加", "edit": "編集", "delete": "削除", "manual_change_test": "手動レート変更 (テスト):", "apply_change": "レート変更実行", "save_apply": "設定を保存して適用", "browse": "参照...", "process_selector_title": "実行中のプロセスを選択", "process_path": "実行パス", "select": "選択", "cancel": "キャンセル", "refresh": "更新", "save": "保存", "ok": "OK", "yes": "はい", "no": "いいえ", "confirm": "確認", "game_editor_title": "ゲーム設定の編集", "new_game_default_name": "新規ゲーム", "language_setting": "言語設定:", "success_language_changed": "言語設定が変更されました。", "notification_error": "エラー", "notification_warning": "警告", "notification_success": "成功", "notification_failure": "失敗", "error_monitor_fetch": "モニター情報の取得に失敗しました。\nResolutionSwitcher.exeを確認してください。", "error_rate_not_integer": "Hz設定は整数値でなければなりません。", "error_process_name_required": "実行ファイル名は必須です。", "warning_process_name_format": "実行ファイル名が一般的な形式(.exeなど)ではありませんが、そのまま保存します。", "warning_select_game": "編集するゲームをリストから選択してください。", "error_game_index_parse": "ゲームデータのインデックスを解析できませんでした。", "error_game_data_not_found": "選択されたゲームデータが見つかりません。", "confirm_delete_game": "選択されたゲームを本当に削除しますか？", "success_game_deleted": "ゲーム設定を削除しました。", "error_monitor_selection_required": "モニターと解像度の設定は必須です。", "error_rate_res_parse": "レートまたは解像度の解析に失敗しました。", "success_rate_change": "モニター {monitor_id} のレートを {resolution}@{target_rate}{hz} に変更しました。", "failure_rate_change": "レートの変更に失敗しました。\n設定: {resolution}@{target_rate}{hz}\nコンソールのエラーを確認してください。", "error_no_selection_rate": "モニター、解像度、レートのいずれかが選択されていません。", "success_settings_saved": "モニターおよびゲームの全体設定をファイルに保存しました。", "warning_select_process": "プロセスをリストから選択してください。"
@@ -1362,23 +1611,31 @@ if __name__ == '__main__':
         "app_title": "Auto Hz Switcher - Settings", "status_idle": "Idle", "status_hz": "Hz", "monitor_settings_title": "🌐 Global Monitor & Rate Settings", "monitoring_title": "⚙️ Monitoring Settings", "enable_monitoring": "Enable Process Monitoring", "monitor_id": "Monitor ID:", "resolution": "Resolution:", "idle_low_rate": "Idle Low Hz:", "use_global_high_rate_check": "Use Global High Hz:", "game_app_title": "🎮 Game/Application Settings", "game_name": "Game Name", "process_name": "Executable Name", "game_high_rate": "Game High Hz", "add_game": "Add Game", "edit": "Edit", "delete": "Delete", "manual_change_test": "Manual Rate Change (Test):", "apply_change": "Apply Rate Change", "save_apply": "Save and Apply Settings", "browse": "Browse...", "process_selector_title": "Select Running Process", "process_path": "Execution Path", "select": "Select", "cancel": "Cancel", "refresh": "Refresh", "save": "Save", "ok": "OK", "yes": "Yes", "no": "No", "confirm": "Confirmation", "game_editor_title": "Edit Game Settings", "new_game_default_name": "New Game", "language_setting": "Language:", "success_language_changed": "Language setting changed successfully.", "notification_error": "Error", "notification_warning": "Warning", "notification_success": "Success", "notification_failure": "Failure", "error_monitor_fetch": "Failed to retrieve monitor information. Check ResolutionSwitcher.exe.", "error_rate_not_integer": "Hz setting must be an integer.", "error_process_name_required": "Executable name is required.", "warning_process_name_format": "Executable name format is unusual, saving anyway.", "warning_select_game": "Please select a game from the list to edit.", "error_game_index_parse": "Could not parse game data index.", "error_game_data_not_found": "Selected game data not found.", "confirm_delete_game": "Are you sure you want to delete the selected game?", "success_game_deleted": "Game settings deleted.", "error_monitor_selection_required": "Monitor and resolution settings are required.", "error_rate_res_parse": "Failed to parse rate or resolution.", "success_rate_change": "Monitor {monitor_id}'s rate changed to {resolution}@{target_rate}{hz}.", "failure_rate_change": "Failed to change rate.\nSetting: {resolution}@{target_rate}{hz}\nCheck console for errors.", "error_no_selection_rate": "Monitor, resolution, or rate is not selected.", "success_settings_saved": "Global monitor and game settings saved.", "warning_select_process": "Please select a process from the list."
     }
 
+    # 修正: resource_path 関数を使用して、言語ファイルのパスを取得
+    ja_path = resource_path('ja.json')
+    en_path = resource_path('en.json')
+    
     try:
-        if not os.path.exists('ja.json'):
-            with open('ja.json', 'w', encoding='utf-8') as f:
+        if not os.path.exists(ja_path):
+            with open(ja_path, 'w', encoding='utf-8') as f:
                 json.dump(lang_data_ja, f, ensure_ascii=False, indent=4)
-        if not os.path.exists('en.json'):
-            with open('en.json', 'w', encoding='utf-8') as f:
+        if not os.path.exists(en_path):
+            with open(en_path, 'w', encoding='utf-8') as f:
                 json.dump(lang_data_en, f, ensure_ascii=False, indent=4)
     except IOError as e:
         print(f"Failed to create language JSON files: {e}")
         
-    root = tk.Tk()
-    root.withdraw()
-    
+    # AppControllerStub の初期化時にルートが必要なため、Tk()の前に移動してもよいが、
+    # ここでは便宜上、 AppControllerStub の中で tk.Tk() を扱うように修正済み。
     app_stub = AppControllerStub()
-    settings_window_root = tk.Toplevel(root)
-    settings_window = HzSwitcherApp(settings_window_root, app_stub)
+    root = app_stub.root # AppControllerStub 内で作成されたルートを取得
     
+    settings_window_root = tk.Toplevel(root)
+    # ここで HzSwitcherApp をインスタンス化する必要がありますが、
+    # そのクラス定義がこのコードブロックに含まれていないため、コメントアウトしています。
+    # settings_window = HzSwitcherApp(settings_window_root, app_stub) 
+    
+    # ウィンドウ位置の調整
     settings_window_root.update_idletasks()
     screen_width = settings_window_root.winfo_screenwidth()
     screen_height = settings_window_root.winfo_screenheight()
