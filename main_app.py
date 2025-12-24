@@ -10,6 +10,7 @@ import os
 import time
 import psutil
 import logging
+from logging.handlers import RotatingFileHandler
 from datetime import datetime
 from typing import Dict, Any, Optional
 from switcher_utility import get_monitor_capabilities, change_rate, get_current_active_rate, get_running_processes_simple, resource_path # <- resource_path を追加
@@ -56,32 +57,68 @@ def _load_language_resources(lang_code: str) -> Dict[str, str]:
 # ----------------------------------------------------------------------
 # ロギング設定 (Application Logger Setup)
 # ----------------------------------------------------------------------
+# ----------------------------------------------------------------------
+# ロギング設定 (Application Logger Setup)
+# ----------------------------------------------------------------------
 def setup_logging():
-    """
-    ロギング設定を行い、ファイルとコンソールに出力するように設定します。
-    製品版では INFO レベル以上を出力します。
-    """
+    
+    # ------------------- ログレベルの読み込み -------------------
+    config_file_path = "hz_switcher_config.json" # 設定ファイルパス
+    log_level_str = 'INFO' # デフォルトレベルは INFO
+    
+    try:
+        # 設定ファイルを読み込む
+        with open(config_file_path, 'r', encoding='utf-8') as f:
+            config_data = json.load(f)
+            # 'log_level' キーを直接探し、なければデフォルトの 'INFO' を返します。
+            log_level_str = config_data.get('log_level', 'INFO').upper()
+            
+    except FileNotFoundError:
+        # ファイルがない場合はデフォルト
+        pass
+    except json.JSONDecodeError:
+        # JSON不正の場合はデフォルト
+        pass
+    except Exception:
+        # その他のエラー（I/Oなど）もデフォルトで続行
+        pass
+        
+    # 文字列を logging のレベル定数に変換。不正な文字列の場合は logging.INFO を使用
+    log_level = getattr(logging, log_level_str, logging.INFO)
+    
     
     # ログファイルのパスを決定 (C:\Users\<Username>\AppData\Local\AutoHzSwitcher\logs\)
     log_dir = os.path.join(os.getenv('LOCALAPPDATA', os.path.expanduser('~')), 'AutoHzSwitcher', 'logs')
     os.makedirs(log_dir, exist_ok=True)
     
-    # ファイル名: AutoHzSwitcher_YYYYMMDD_HHMMSS.log
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file_path = os.path.join(log_dir, f"AutoHzSwitcher_{timestamp}.log")
+    # ------------------- ログファイルのローテーション設定 -------------------
+    
+    # ログファイルの最大サイズ: 5 MB (5 * 1024 * 1024 バイト)
+    MAX_BYTES = 5 * 1024 * 1024 
+    # ローテーションで保持するファイル数: 5世代まで (現在のファイル + 4つの古いファイル)
+    BACKUP_COUNT = 4 
+
+    # ログファイル名 (ローテーションハンドラはタイムスタンプなしの固定名)
+    log_file_path_fixed = os.path.join(log_dir, "AutoHzSwitcher.log")
     
     # ルートロガーを設定
     root_logger = logging.getLogger()
-    # INFO レベル以上 (INFO, WARNING, ERROR, CRITICAL) を出力
-    root_logger.setLevel(logging.INFO) 
+    root_logger.setLevel(log_level) 
 
     # 既存のハンドラをクリア (二重ログ出力防止のため)
     if root_logger.hasHandlers():
         root_logger.handlers.clear()
         
-    # 1. ファイルハンドラの設定
-    file_handler = logging.FileHandler(log_file_path, encoding='utf-8')
-    file_handler.setLevel(logging.INFO)
+    # 1. ファイルハンドラの設定 (RotatingFileHandler)
+    file_handler = RotatingFileHandler(
+        log_file_path_fixed,
+        maxBytes=MAX_BYTES,
+        backupCount=BACKUP_COUNT,
+        encoding='utf-8'
+    )
+    
+    # ハンドラにも読み込んだ log_level を適用
+    file_handler.setLevel(log_level) 
     file_formatter = logging.Formatter(
         '%(asctime)s - %(levelname)s - %(module)s.%(funcName)s: %(message)s'
     )
@@ -90,12 +127,13 @@ def setup_logging():
     
     # 2. コンソールハンドラの設定 (ターミナルに出力)
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
+    # ハンドラにも読み込んだ log_level を適用
+    console_handler.setLevel(log_level) 
     console_formatter = logging.Formatter('%(levelname)s: %(message)s')
     console_handler.setFormatter(console_formatter)
     root_logger.addHandler(console_handler)
     
-    logging.info("Logging initialized successfully.")
+    logging.info("Logging initialized successfully with level: %s", logging.getLevelName(log_level))
 
 # ----------------------------------------------------------------------
 # 設定の読み込みとGUIの起動を管理するメインクラス
