@@ -10,7 +10,13 @@ import json
 import psutil # <- プロセス情報を取得するためのライブラリ
 import time
 import logging # ログ記録のために追加
-from typing import List, Dict, Any, Set # 型ヒントのために追加
+from typing import List, Dict, Any, Set, Optional # 型ヒントのために追加
+
+# ----------------------------------------------------------------------
+# 🚨 ロガーオブジェクトの定義 (すべての関数で利用)
+# ----------------------------------------------------------------------
+APP_LOGGER = logging.getLogger('AutoHzSwitcher')
+# ----------------------------------------------------------------------
 
 def resource_path(relative_path):
     """
@@ -44,16 +50,10 @@ APP_ICON_ICO_PATH = resource_path("app_icon.ico")
 # 外部実行ファイル
 RESOLUTION_SWITCHER_EXE_PATH = resource_path("ResolutionSwitcher.exe")
 
-# ※ hz_switcher_config.json は実行時に作成されるため、resource_pathは使わず、
-#    os.path.join(os.path.dirname(sys.executable), "hz_switcher_config.json")
-#    のように、実行ファイルと同じディレクトリを参照する必要があります。
-
 # --- Configuration Settings (Constants) ---
-# 相対パスを使用 (動作確認済み)
-#SWITCHER_PATH = r"ResolutionSwitcher" 
 SWITCHER_PATH = RESOLUTION_SWITCHER_EXE_PATH
 
-# --- Core Utility Function: Get Monitor Modes (変更なし) ---
+# --- Core Utility Function: Get Monitor Modes ---
 
 def _get_monitor_modes(monitor_id: str) -> dict:
     """
@@ -61,8 +61,8 @@ def _get_monitor_modes(monitor_id: str) -> dict:
     """
     
     full_command = f'"{SWITCHER_PATH}" --monitor "{monitor_id}"'
-
-    print(f"Executing command for modes list: {full_command}")
+    APP_LOGGER.debug("Executing command for monitor modes list: %s", full_command)
+    
     modes = {}
 
     try:
@@ -78,8 +78,8 @@ def _get_monitor_modes(monitor_id: str) -> dict:
         # 終了コードチェック
         if result.returncode != 0:
             error_output = result.stderr.strip() if result.stderr else "（エラー出力なし）"
-            print(f"❌ ResolutionSwitcher --monitor returned non-zero exit status {result.returncode}. ID: {monitor_id}")
-            print(f"Error output: {error_output}")
+            APP_LOGGER.error("ResolutionSwitcher --monitor returned non-zero exit status %d for ID: %s. Output: %s", 
+                             result.returncode, monitor_id, error_output)
             return modes # 失敗時は空の辞書を返す
             
         output = result.stdout
@@ -110,20 +110,22 @@ def _get_monitor_modes(monitor_id: str) -> dict:
         for res in modes:
             modes[res].sort(reverse=True)
             
+        APP_LOGGER.debug("Successfully parsed monitor modes for ID: %s. Total resolutions found: %d", monitor_id, len(modes))
         return modes
 
     except Exception as e:
-        print(f"❌ Unexpected error in _get_monitor_modes: {e}")
+        APP_LOGGER.error("Unexpected error in _get_monitor_modes for ID %s: %s", monitor_id, e)
         return modes
 
 
-# --- Core Utility Function: Get Monitor Capabilities (変更なし) ---
+# --- Core Utility Function: Get Monitor Capabilities ---
 
 def get_monitor_capabilities() -> dict:
     """
     全モニターのID、名前、およびサポートレート情報を取得し統合します。
     GUIのモニター設定画面で利用されます。
     """
+    APP_LOGGER.info("Starting to retrieve all monitor capabilities.")
     all_capabilities = {}
 
     full_command_monitors = f'"{SWITCHER_PATH}" --monitors'
@@ -134,6 +136,12 @@ def get_monitor_capabilities() -> dict:
             check=False, shell=True, capture_output=True, text=True, encoding='cp932',
         )
         output = result.stdout
+        
+        if result.returncode != 0:
+            error_output = result.stderr.strip() if result.stderr else "（エラー出力なし）"
+            APP_LOGGER.error("ResolutionSwitcher --monitors returned non-zero exit status %d. Output: %s", 
+                             result.returncode, error_output)
+            return {}
         
         name_block_pattern = re.compile(r"^\[(.+)\]$")
         id_pattern = re.compile(r"^ID: (.+)$") 
@@ -150,6 +158,7 @@ def get_monitor_capabilities() -> dict:
                 current_name = name_block_match.group(1).strip()
             elif id_match:
                 current_id = id_match.group(1).strip()
+                APP_LOGGER.debug("Found monitor: Name='%s', ID='%s'. Retrieving modes...", current_name, current_id)
                 # モード情報を取得
                 all_modes = _get_monitor_modes(current_id) 
                 
@@ -159,17 +168,19 @@ def get_monitor_capabilities() -> dict:
                 }
                 current_name = 'Unknown Monitor' 
 
+        APP_LOGGER.info("Successfully completed monitor capability retrieval. Total monitors: %d", len(all_capabilities))
         return all_capabilities
 
     except Exception as e:
-        print(f"❌ Unexpected error in get_monitor_capabilities (Monitor List): {e}")
+        APP_LOGGER.error("Unexpected error in get_monitor_capabilities (Monitor List): %s", e)
         return {}
     
-def get_current_active_rate(monitor_id: str) -> int | None:
+def get_current_active_rate(monitor_id: str) -> Optional[int]:
     """
     ResolutionSwitcher.exe --monitors の出力から、指定されたモニターの
     現在のリフレッシュレートをOSから直接取得します。
     """
+    APP_LOGGER.debug("Attempting to get current active rate for monitor ID: %s", monitor_id)
     full_command_monitors = f'"{SWITCHER_PATH}" --monitors'
 
     try:
@@ -180,12 +191,10 @@ def get_current_active_rate(monitor_id: str) -> int | None:
         output = result.stdout
         
         if result.returncode != 0:
-            print(f"❌ ResolutionSwitcher --monitors returned non-zero exit status {result.returncode}.")
+            APP_LOGGER.error("ResolutionSwitcher --monitors returned non-zero exit status %d.", result.returncode)
             return None
 
         # モニターIDと解像度/レートを抽出するための正規表現パターン
-        # ID:            \\.\DISPLAY2
-        # Resolution:    2560x1440 @ 59Hz
         id_pattern = re.compile(r"^ID:\s+(.+)$", re.MULTILINE) 
         res_pattern = re.compile(r"^Resolution:\s+\d+x\d+\s+@\s+(\d+)Hz$", re.MULTILINE) 
 
@@ -212,17 +221,17 @@ def get_current_active_rate(monitor_id: str) -> int | None:
                 try:
                     current_rate = int(rate_str)
                     # 💡 目的のレートを取得したら即座に処理を終了
-                    #print(f"DEBUG: Active rate retrieved for {monitor_id}: {current_rate}Hz")
+                    APP_LOGGER.info("Active rate retrieved for %s: %d Hz", monitor_id, current_rate)
                     return current_rate
                 except ValueError:
-                    print(f"Warning: Could not convert rate '{rate_str}' to int.")
+                    APP_LOGGER.warning("Could not convert rate '%s' to int for monitor %s.", rate_str, monitor_id)
                     return None
         
-        print(f"Warning: Could not find active rate for monitor ID: {monitor_id}")
+        APP_LOGGER.warning("Could not find active rate for monitor ID: %s in output.", monitor_id)
         return None
 
     except Exception as e:
-        print(f"❌ Unexpected error in get_current_active_rate: {e}")
+        APP_LOGGER.error("Unexpected error in get_current_active_rate: %s", e)
         return None
 
 
@@ -244,14 +253,12 @@ def change_rate(target_rate: int, width: int, height: int, monitor_id: str, max_
         f'"{SWITCHER_PATH}" {rs_args}'
     )
     
-    # ロギング/コンソール出力は、再試行ロジックの外部で最初に行う
-    print(f"Executing command: {full_command}")
-    # logging.info(f"Attempting command: {full_command}") # ロギングを使用する場合
+    APP_LOGGER.info("Attempting to change rate to %d Hz for %s (%dx%d). Command: %s", target_rate, monitor_id, width, height, full_command)
 
     for attempt in range(max_retries):
         if attempt > 0:
-            # 2回目以降の試行
-            print(f"⚠️ Rate change failed. Retrying in {retry_delay}s... (Attempt {attempt + 1}/{max_retries})")
+            APP_LOGGER.warning("Rate change failed on attempt %d. Retrying in %.1fs... (Attempt %d/%d)", 
+                               attempt, retry_delay, attempt + 1, max_retries)
             time.sleep(retry_delay)
             
         try:
@@ -269,36 +276,35 @@ def change_rate(target_rate: int, width: int, height: int, monitor_id: str, max_
             error_output = result.stderr.strip() if result.stderr else "（出力なし）"
             
             if result.returncode == 0:
-                print(f"✅ Success: Monitor {monitor_id} changed to {target_rate}Hz on attempt {attempt + 1}.")
+                APP_LOGGER.info("SUCCESS: Monitor %s changed to %d Hz on attempt %d.", monitor_id, target_rate, attempt + 1)
                 return True # 成功した場合は True を返して終了
             else:
-                # 外部ツールが非ゼロコードを返したが、まだ再試行回数が残っている場合
-                print(f"❌ Error: Command returned non-zero exit status {result.returncode}. Output: {error_output}")
-                # ループの先頭に戻り、次の attempt を実行
+                APP_LOGGER.error("Command returned non-zero exit status %d on attempt %d. Output: %s", 
+                                 result.returncode, attempt + 1, error_output)
                 continue 
             
         except FileNotFoundError:
-            print(f"❌ FATAL ERROR: {SWITCHER_PATH} not found. Stopping retries.")
+            APP_LOGGER.critical("FATAL ERROR: ResolutionSwitcher executable not found at %s. Stopping retries.", SWITCHER_PATH)
             return False # 致命的なエラーは再試行せず終了
         except Exception as e:
-            print(f"❌ Unexpected error during rate change attempt {attempt + 1}: {e}")
-            # 予期せぬエラーでも、再試行回数が残っていれば継続
+            APP_LOGGER.error("Unexpected exception during rate change attempt %d: %s", attempt + 1, e)
             continue 
 
-    # 最大再試行回数を使い切った場合
-    print(f"❌ FINAL FAILURE: Failed to change rate to {target_rate}Hz after {max_retries} attempts.")
+    APP_LOGGER.error("FINAL FAILURE: Failed to change rate to %d Hz after %d attempts.", target_rate, max_retries)
     return False # 最終的な失敗
 
 # -------------------------------------------------------------------
 # --- Core Utility Function: Get Running Processes (GUI実装の基盤) ---
 # =================================================================================
-# 1. 監視スレッド用: プロセス名とパスのみを返す軽量版 (既存の低負荷な動作に戻す)
+# 1. 監視スレッド用: プロセス名とパスのみを返す軽量版 
 # =================================================================================
 
 def get_running_processes_simple() -> List[Dict[str, str]]:
     """
     実行中のプロセス名と実行パスのみを取得する軽量版。監視スレッドでの利用を想定。
     """
+    # 🚨 修正: 毎ループ出力される冗長な開始ログを削除
+    # APP_LOGGER.debug("Starting lightweight process list retrieval for monitoring.")
     processes = []
     seen_processes = set()
     
@@ -325,23 +331,28 @@ def get_running_processes_simple() -> List[Dict[str, str]]:
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 continue
             except Exception as inner_e:
-                # DEBUG: print(f"DEBUG: Failed to get simple info for process: {inner_e}")
+                # 💡 このデバッグログは、エラー発生時のみ出力されるため維持
+                APP_LOGGER.debug("Failed to get simple info for process in loop: %s", inner_e)
                 continue 
                 
     except Exception as e:
-        print(f"ERROR: Error reading processes (simple): {e}")
+        # 💡 エラーログは維持
+        APP_LOGGER.error("Error reading processes (simple): %s", e)
         return []
         
-    return processes # ソートは不要なため、そのまま返す
+    # 🚨 修正: 毎ループ出力される冗長な終了ログを削除
+    # APP_LOGGER.debug("Lightweight process list retrieval complete. Total unique processes: %d", len(processes))
+    return processes
 
 # =================================================================================
-# 2. 登録ダイアログ用: CPUとメモリ情報を含む高負荷版 (既存の get_running_processes をリネーム)
+# 2. 登録ダイアログ用: CPUとメモリ情報を含む高負荷版 
 # =================================================================================
 
 def get_running_processes_detailed() -> List[Dict[str, Any]]:
     """
     実行中のプロセスの一覧を取得し、名前（.exe）、実行パス、CPU、メモリを返します。
     """
+    APP_LOGGER.debug("Starting detailed process list retrieval for GUI dialog.")
     processes = []
     seen_processes = set()
     
@@ -372,9 +383,7 @@ def get_running_processes_detailed() -> List[Dict[str, Any]]:
                         memory_mb = 0
                         
                         # namedtuple または dict の場合に .rss / ['rss'] が存在するか安全にチェック
-                        # getattr() を使用することで、namedtuple/dictのどちらでも安全にアクセスを試みる
                         if mem_info:
-                            # rss属性が存在し、それが数値であれば
                             rss_value = getattr(mem_info, 'rss', None)
                             if rss_value is None and isinstance(mem_info, dict) and 'rss' in mem_info:
                                 rss_value = mem_info['rss']
@@ -387,21 +396,21 @@ def get_running_processes_detailed() -> List[Dict[str, Any]]:
                             "name": process_name,
                             "path": executable_path,
                             "cpu": round(cpu_percent, 1), 
-                            "memory": round(memory_mb)     # MBで整数に丸め
+                            "memory": round(memory_mb) 
                         })
                         seen_processes.add(key)
                         
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 continue
             except Exception as inner_e:
-                print(f"DEBUG: Failed to get info for process {process_name}: {inner_e}")
-                # ここでエラーが出たプロセスはスキップ
+                APP_LOGGER.warning("Failed to get detailed info for process %s: %s", proc.info.get('name', 'Unknown'), inner_e)
                 continue 
                 
     except Exception as e:
-        print(f"ERROR: Error reading processes: {e}")
+        APP_LOGGER.error("Error reading detailed processes: %s", e)
         return []
         
+    APP_LOGGER.debug("Detailed process list retrieval complete. Total unique processes: %d", len(processes))
     # デフォルトソート（メモリ降順）を適用
     return sorted(processes, key=lambda x: x['memory'], reverse=True)
 
@@ -412,52 +421,61 @@ def get_all_process_names() -> Set[str]:
     """
     メインアプリの監視ループで使用するために、現在実行中のプロセス名のみのSetを返します。
     """
+    APP_LOGGER.debug("Starting retrieval of all running process names for monitoring set.")
     running_names: Set[str] = set()
     try:
-        # get_running_processesの結果から名前だけを抽出するか、psutilを直接使用する
-        # ここでは、元の get_running_processes のロジックに影響を与えないよう、
-        # psutilをシンプルに使って名前のみ取得します。
         for proc in psutil.process_iter(['name']):
              name = proc.info.get('name')
              if name:
                  running_names.add(name)
+        
+        APP_LOGGER.debug("Successfully retrieved %d unique process names.", len(running_names))
         return running_names
         
     except Exception as e:
-        print(f"Error retrieving all process names for monitoring: {e}")
+        APP_LOGGER.error("Error retrieving all process names for monitoring: %s", e)
         return set()
 
 
 # -------------------------------------------------------------------
 # --- CLI Execution Block (テスト用に利用) ---
 if __name__ == "__main__":
-    # --- Monitor Capabilities Test ---
+    
+    # ロギング設定の基本設定
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    APP_LOGGER.setLevel(logging.DEBUG) # テスト実行時はログレベルをDEBUGに設定
+    
     print("\n--- Full Monitor Capabilities Test ---")
+    APP_LOGGER.info("--- Starting Full Monitor Capabilities Test ---")
     
     capabilities = get_monitor_capabilities()
     
     if capabilities:
-        print("\n✅ Successfully retrieved full monitor capabilities:")
-        print(json.dumps(capabilities, indent=4, ensure_ascii=False))
+        APP_LOGGER.info("Successfully retrieved full monitor capabilities. Keys: %s", list(capabilities.keys()))
+        APP_LOGGER.debug("Monitor capabilities data: %s", json.dumps(capabilities, indent=4, ensure_ascii=False))
     else:
-        print("❌ Failed to retrieve monitor capabilities. Check ResolutionSwitcher.exe functionality.")
+        APP_LOGGER.error("Failed to retrieve monitor capabilities. Check ResolutionSwitcher.exe functionality.")
         
     # --- Process List Test (Name and Path for GUI) ---
     print("\n--- Process List Test (Name and Path for GUI) ---")
+    APP_LOGGER.info("--- Starting Detailed Process List Test ---")
     
     process_list = get_running_processes_detailed()
     
     if process_list:
-        print(f"✅ Successfully retrieved {len(process_list)} unique running processes (Name and Path).")
+        APP_LOGGER.info("Successfully retrieved %d unique running processes.", len(process_list))
         print("First 5 processes:")
         for p in process_list[:5]:
-            print(f"   Name: {p['name']}, Path: {p['path']}")
+            print(f"   Name: {p['name']}, Path: {p['path']}, CPU: {p['cpu']}%, Mem: {p['memory']}MB")
+        APP_LOGGER.debug("First 5 detailed processes: %s", process_list[:5])
     else:
-        print("❌ Failed to retrieve process list.")
+        APP_LOGGER.error("Failed to retrieve process list.")
 
     # --- Process Name Set Test (for monitoring loop) ---
     print("\n--- Process Name Set Test (for monitoring loop) ---")
+    APP_LOGGER.info("--- Starting Process Name Set Test ---")
     
     name_set = get_all_process_names()
-    print(f"✅ Total unique process names: {len(name_set)}")
-    print(f"Set contains 'explorer.exe': {'explorer.exe' in name_set}")
+    print(f"Total unique process names: {len(name_set)}")
+    APP_LOGGER.info("Total unique process names: %d", len(name_set))
+    APP_LOGGER.debug("Set contains 'explorer.exe': %s", 'explorer.exe' in name_set)

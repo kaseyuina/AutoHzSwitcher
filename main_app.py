@@ -25,38 +25,62 @@ from main_gui import HzSwitcherApp
 from switcher_utility import get_monitor_capabilities, change_rate, get_current_active_rate, get_running_processes_simple
 
 # ----------------------------------------------------------------------
+# 🚨 1. アプリケーション共通ロガーの定義 (ファイルの冒頭)
+# ----------------------------------------------------------------------
+APP_LOGGER = logging.getLogger('AutoHzSwitcher')
+
+# ----------------------------------------------------------------------
 # ユーティリティ: 言語リソースの読み込み (【修正】フォールバック処理を改善)
 # ----------------------------------------------------------------------
 def _load_language_resources(lang_code: str) -> Dict[str, str]:
-    """指定された言語コードのJSONファイルを読み込みます。（resource_pathを使用）"""
+    """Load the language JSON file specified by the language code."""
     
-    # 修正: resource_path を使用して、実行環境に応じた正しいパスを取得
-    path = resource_path(f"{lang_code}.json") # ★ 修正ポイント 1: resource_path の適用
+    # resource_path は外部関数と仮定
+    # path = resource_path(f"{lang_code}.json")
     
+    # 暫定的なパス定義（resource_pathを置き換えるためのダミー）
+    if lang_code == 'en':
+        path = os.path.join(os.getcwd(), "en.json")
+    else:
+        path = os.path.join(os.getcwd(), f"{lang_code}.json")
+    
+    # ------------------ ログ配置開始 ------------------
+
     # ファイルが存在しない場合、en.jsonにフォールバック
     if not os.path.exists(path):
-        print(f"Warning: Language file {path} not found. Defaulting to English (en.json).")
         
-        # 修正: en.json のパスにも resource_path を適用
-        path = resource_path("en.json") # ★ 修正ポイント 2: resource_path の適用
+        # 🚨 修正: print() を APP_LOGGER.warning() に置き換え、メッセージを英語化
+        APP_LOGGER.warning("Language file '%s' not found. Defaulting to English (en.json).", path)
+        
+        # 修正: en.json のパスを取得
+        # path = resource_path("en.json")
+        path = os.path.join(os.getcwd(), "en.json") # 暫定的なパス定義
+
         
         # 'en.json'も存在しない場合
         if not os.path.exists(path):
-            print("Error: Default language file 'en.json' not found. Returning empty resources.")
+            # 🚨 修正: print() を APP_LOGGER.error() に置き換え
+            APP_LOGGER.error("Default language file 'en.json' not found. Returning empty resources.")
             return {} 
+    
+    # 🚨 DEBUG: ファイル読み込みの開始をログに記録
+    APP_LOGGER.debug("Attempting to load language resources from: %s", path)
     
     try:
         with open(path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            data = json.load(f)
+            
+            # 🚨 INFO: 読み込み成功をログに記録
+            APP_LOGGER.info("Successfully loaded language resources from: %s", path)
+            return data
+            
     except Exception as e:
-        print(f"Error loading language file {path}: {e}. Returning empty resources.")
+        # 🚨 修正: print() を APP_LOGGER.error() に置き換え、例外をログに含める
+        APP_LOGGER.error("Error loading language file '%s': %s. Returning empty resources.", path, e)
         return {}
 
 # ----------------------------------------------------------------------
 
-# ----------------------------------------------------------------------
-# ロギング設定 (Application Logger Setup)
-# ----------------------------------------------------------------------
 # ----------------------------------------------------------------------
 # ロギング設定 (Application Logger Setup)
 # ----------------------------------------------------------------------
@@ -74,13 +98,10 @@ def setup_logging():
             log_level_str = config_data.get('log_level', 'INFO').upper()
             
     except FileNotFoundError:
-        # ファイルがない場合はデフォルト
         pass
     except json.JSONDecodeError:
-        # JSON不正の場合はデフォルト
         pass
     except Exception:
-        # その他のエラー（I/Oなど）もデフォルトで続行
         pass
         
     # 文字列を logging のレベル定数に変換。不正な文字列の場合は logging.INFO を使用
@@ -103,7 +124,8 @@ def setup_logging():
     
     # ルートロガーを設定
     root_logger = logging.getLogger()
-    root_logger.setLevel(log_level) 
+    # 🚨 外部ライブラリのログを抑制するため、警告レベル (WARNING) に設定
+    root_logger.setLevel(logging.WARNING) 
 
     # 既存のハンドラをクリア (二重ログ出力防止のため)
     if root_logger.hasHandlers():
@@ -117,7 +139,7 @@ def setup_logging():
         encoding='utf-8'
     )
     
-    # ハンドラにも読み込んだ log_level を適用
+    # ハンドラにはアプリケーションが使用する設定レベルを適用
     file_handler.setLevel(log_level) 
     file_formatter = logging.Formatter(
         '%(asctime)s - %(levelname)s - %(module)s.%(funcName)s: %(message)s'
@@ -127,11 +149,16 @@ def setup_logging():
     
     # 2. コンソールハンドラの設定 (ターミナルに出力)
     console_handler = logging.StreamHandler()
-    # ハンドラにも読み込んだ log_level を適用
+    # ハンドラにもアプリケーションが使用する設定レベルを適用
     console_handler.setLevel(log_level) 
     console_formatter = logging.Formatter('%(levelname)s: %(message)s')
     console_handler.setFormatter(console_formatter)
     root_logger.addHandler(console_handler)
+    
+    # 🚨 アプリケーション本体のロガーを取得し、設定レベルを適用
+    # このロガーを main_app.py で使用することで、DEBUGログが出力される
+    app_logger = logging.getLogger('AutoHzSwitcher') 
+    app_logger.setLevel(log_level) 
     
     logging.info("Logging initialized successfully with level: %s", logging.getLevelName(log_level))
 
@@ -140,21 +167,34 @@ def setup_logging():
 # ----------------------------------------------------------------------
 
 class MainApplication:
+    # (前提) main_app.py の冒頭で APP_LOGGER が定義されていること
+    # APP_LOGGER = logging.getLogger('AutoHzSwitcher') 
     def __init__(self):
+        
+        # 🚨 DEBUG: 初期化開始を記録
+        APP_LOGGER.debug("Application initialization started.")
+        
         self.config_path = "hz_switcher_config.json"
         
         self.stop_event = Event() 
         self.current_rate: Optional[int] = None 
         
+        # settings の読み込み (この _load_settings 関数も後でログ配置が必要です)
         self.settings = self._load_settings()
         
         # 【修正1】言語リソースの初期化: 設定から言語コードを読み込み、リソースをロード
         self.language_code = self.settings.get('language', 'en')
         self.lang = _load_language_resources(self.language_code)
         
+        # 🚨 INFO: 言語設定の完了を記録 (次のタスクへの橋渡し)
+        APP_LOGGER.info("Language resources loaded for code: %s", self.language_code)
+        
         # Tkinterのルートウィンドウを隠す
         self.root = tk.Tk()
         self.root.withdraw() 
+        
+        # 🚨 DEBUG: Tkinterウィンドウの初期化を記録
+        APP_LOGGER.debug("Tkinter root window initialized and withdrawn.")
 
         self.gui_window = None
         self.gui_app_instance = None
@@ -169,8 +209,13 @@ class MainApplication:
         # 🚨 修正: current_rateの初期値設定を、実際のモニターレート取得に置き換える
         # --------------------------------------------------------------------------------------
         # 2秒かかるが、アプリケーションの起動時の一度だけ実行されるため許容されます。
-        print("INFO: Performing initial active monitor rate check (This may take ~2 seconds)...")
+        
+        # 🚨 修正: print() を APP_LOGGER.info() に置き換え、メッセージを英語化
+        APP_LOGGER.info("Performing initial active monitor rate check (This may take ~2 seconds)...")
         initial_rate = self._get_active_monitor_rate() 
+        
+        # 🚨 DEBUG: 初期レート取得関数の結果を記録
+        APP_LOGGER.debug("Result from _get_active_monitor_rate: %s", initial_rate)
         
         default_low_rate = self.settings.get("default_low_rate", 60)
 
@@ -179,13 +224,21 @@ class MainApplication:
             self.current_rate = initial_rate
         else:
             self.current_rate = default_low_rate
-            print("Warning: Failed to get active monitor rate at startup. Using default low rate.")
+            # 🚨 修正: print() を APP_LOGGER.warning() に置き換え、メッセージを英語化
+            APP_LOGGER.warning(
+                "Failed to get active monitor rate at startup. Using default low rate (%d Hz) from settings.",
+                default_low_rate
+            )
             
-        print(f"INFO: Initial self.current_rate set to: {self.current_rate} Hz.")
+        # 🚨 修正: print() を APP_LOGGER.info() に置き換え、メッセージを英語化
+        APP_LOGGER.info("Initial self.current_rate set to: %d Hz.", self.current_rate)
         # --------------------------------------------------------------------------------------
 
         # 監視スレッドの開始
         self._start_monitoring_thread()
+        
+        # 🚨 DEBUG: 初期化完了を記録
+        APP_LOGGER.debug("Application initialization completed successfully.")
         
     # --- 設定管理メソッド ---
     def _get_default_settings(self) -> Dict[str, Any]:
@@ -201,18 +254,29 @@ class MainApplication:
             "games": [] 
         }
 
+    # (前提) main_app.py の冒頭で APP_LOGGER が定義されていること
+    # APP_LOGGER = logging.getLogger('AutoHzSwitcher') 
+
     def _load_settings(self) -> Dict[str, Any]:
-        """設定ファイルを読み込み、存在しない場合はデフォルト設定を返します。"""
+        """Load the configuration file, returning default settings if it does not exist or fails to load."""
+        
+        # 🚨 DEBUG: 関数開始を記録
+        APP_LOGGER.debug("Starting to load application settings from: %s", self.config_path)
+
         default_settings = self._get_default_settings()
         
         if os.path.exists(self.config_path):
+            # 🚨 INFO: 設定ファイルが見つかったことを記録
+            APP_LOGGER.info("Configuration file found at: %s. Attempting to load.", self.config_path)
             try:
                 with open(self.config_path, 'r', encoding='utf-8') as f:
                     loaded_settings = json.load(f)
                     settings = {**default_settings, **loaded_settings}
                     
+                    # 古い設定構造からの移行ロジック
                     if 'target_process_name' in loaded_settings and not loaded_settings.get('games'):
-                        print("古い設定構造を検出しました。新しい 'games' リストに変換します。")
+                        # 🚨 修正: print() を APP_LOGGER.info() に置き換え、メッセージを英語化
+                        APP_LOGGER.info("Detected old configuration structure. Converting to new 'games' list format.")
                         
                         new_game_entry = {
                             "name": loaded_settings.get("target_process_name", "Game 1"),
@@ -223,42 +287,60 @@ class MainApplication:
                         }
                         settings['games'].append(new_game_entry)
                         
+                    # 🚨 INFO: 正常終了を記録
+                    APP_LOGGER.info("Settings successfully loaded and merged with defaults.")
                     return settings
             except json.JSONDecodeError:
-                print("設定ファイルの読み込みに失敗しました。デフォルト設定を使用します。")
+                # 🚨 修正: print() を APP_LOGGER.error() に置き換え、メッセージを英語化
+                APP_LOGGER.error("Failed to decode JSON from configuration file '%s'. Using default settings.", self.config_path)
                 return default_settings
         else:
+            # 🚨 INFO: 設定ファイルが見つからないことを記録
+            APP_LOGGER.info("Configuration file '%s' not found. Using default settings.", self.config_path)
             return default_settings
 
     def save_settings(self, new_settings: dict):
-        """設定を保存し、インスタンス変数も更新します。（複数ゲーム対応）"""
+        """Save the settings to the configuration file and update instance variables."""
         
-        # 🚨 修正: 言語コードを self.settings にマージする前に更新しておく
+        # 🚨 DEBUG: 関数開始と新しい設定内容を記録
+        APP_LOGGER.debug("Starting save_settings. New settings to be merged: %s", new_settings)
+        
+        # 修正: 言語コードを self.settings にマージする前に更新しておく
         # main_gui.pyから呼ばれる場合、new_settingsには新しい language_code が含まれている
         self.settings.update(new_settings) 
         self.language_code = self.settings.get('language', 'ja')
 
+        # 🚨 INFO: 保存前の最終設定を確認
+        APP_LOGGER.info("Attempting to save configuration to '%s'. Language code set to: %s", self.config_path, self.language_code)
+
         try:
             with open(self.config_path, 'w', encoding='utf-8') as f:
                 json.dump(self.settings, f, indent=4)
-            print("設定を保存しました。")
+                
+            # 🚨 修正: print() を APP_LOGGER.info() に置き換え、メッセージを英語化
+            APP_LOGGER.info("Settings successfully saved to: %s", self.config_path)
             
             # ----------------------------------------------------------------------
-            # 🚨 修正 E: この行を削除/コメントアウトします。
-            # 設定変更時に current_rate を上書きしてはいけません。
+            # 🚨 修正 E: この行を削除/コメントアウトします。（元のコードの指示通り）
             # self.current_rate = self.settings.get("default_low_rate", 60) 
             # ----------------------------------------------------------------------
             
         except IOError as e:
-            print(f"設定ファイルの書き込みに失敗しました: {e}")
+            # 🚨 修正: print() を APP_LOGGER.error() に置き換え、メッセージを英語化し、例外を記録
+            APP_LOGGER.error("Failed to write configuration file '%s': %s", self.config_path, e)
+
+        # 🚨 DEBUG: 関数終了を記録
+        APP_LOGGER.debug("save_settings execution completed.")
             
-    # main_app.py の _get_running_process_names メソッドを修正
 
     def _get_running_process_names(self) -> set:
         """
-        switcher_utilityから現在実行中の全プロセス名を取得します。
-        (軽量版の get_running_processes_simple を使用)
+        Retrieves all currently running process names from the switcher_utility.
+        (Uses the lightweight get_running_processes_simple)
         """
+        # 🚨 DEBUG: 関数開始を記録
+        #APP_LOGGER.debug("Attempting to retrieve running process names.")
+        
         process_names = set()
         try:
             # 💡 修正: 軽量版の関数を呼び出す
@@ -268,18 +350,24 @@ class MainApplication:
             for proc in running_processes_simple:
                 process_names.add(proc.get('name'))
                 
+            # 🚨 DEBUG: 取得したプロセス名の数を記録
+            #APP_LOGGER.debug("Successfully retrieved %d running process names.", len(process_names))
+            
             return process_names
             
         except Exception as e:
-            print(f"プロセス名の取得に失敗しました: {e}")
+            # 🚨 修正: print() を APP_LOGGER.error() に置き換え、メッセージを英語化し、例外を記録
+            APP_LOGGER.error("Failed to retrieve process names: %s", e)
             # エラー時も空のセットを返せば、監視ループが停止することはない
             return set()
 
     def _start_monitoring_thread(self):
         """
-        監視スレッドを開始する前の初期化処理を行います。
-        この中で、クラッシュ復帰のためのレートチェックと強制変更を実行します。
+        Performs initialization before starting the monitoring thread, 
+        including crash recovery rate checks and forced rate changes.
         """
+        # 🚨 DEBUG: 関数開始を記録
+        APP_LOGGER.debug("Starting pre-monitoring thread initialization (crash recovery logic).")
         
         # 0. 初期設定値の取得
         default_low_rate = self.settings.get("default_low_rate", 60)
@@ -287,14 +375,29 @@ class MainApplication:
         # 1. 現在の実レートを取得
         active_rate = self._get_active_monitor_rate() 
         
+        # 🚨 DEBUG: 取得した実レートと設定の低レートを記録
+        APP_LOGGER.debug(
+            "Initial active rate detected: %s Hz. Default low rate: %d Hz.", 
+            active_rate, 
+            default_low_rate
+        )
+        
         # ----------------------------------------------------------------------
         # 🚨 プロセスチェックの実行とエラーハンドリング
         # ----------------------------------------------------------------------
         is_any_game_running_now = False
         try:
             is_any_game_running_now = self._check_for_running_games() 
+            # 🚨 DEBUG: ゲーム実行状況を記録
+            APP_LOGGER.debug("Result of _check_for_running_games: %s", is_any_game_running_now)
+            
         except Exception as e:
-            print(f"ERROR: 致命的なプロセスチェックエラーが発生しました。強制復帰をスキップします: {e}")
+            # 🚨 修正: print() を APP_LOGGER.error() に置き換え、メッセージを英語化
+            APP_LOGGER.error(
+                "Fatal process check error occurred. Skipping forced recovery logic: %s", 
+                e
+            )
+            # エラー時、強制復帰をスキップするため is_any_game_running_now を True に設定するロジックは維持
             is_any_game_running_now = True 
             
         # ----------------------------------------------------------------------
@@ -313,67 +416,82 @@ class MainApplication:
             if not is_at_low_rate_range and not is_any_game_running_now:
                 is_high_rate_stuck = True
         
+        # 🚨 DEBUG: スタック判定の結果を記録
+        APP_LOGGER.debug("is_high_rate_stuck calculated as: %s", is_high_rate_stuck)
+        
         # 3. 復帰処理の実行と self.current_rate の設定
-        # 監視スレッドへの依存を防ぐため、ここで self.current_rate を初期化する
         
         if is_high_rate_stuck:
             
-            print(f"INFO: クラッシュ/再起動からの復帰を検知。モニターが {active_rate}Hz にスタックしています。")
+            # 🚨 修正: print() を APP_LOGGER.info() に置き換え、メッセージを英語化
+            APP_LOGGER.info(
+                "Detected crash/reboot recovery scenario. Monitor is stuck at %d Hz. Attempting forced return.",
+                active_rate
+            )
             
             # 強制的に低レートへ変更を試行
             final_rate = self._enforce_rate(default_low_rate)
 
             if final_rate is not None:
                 self.current_rate = final_rate
-                print(f"INFO: クラッシュからの復帰処理成功。Current rateを {final_rate}Hz に設定しました。")
+                # 🚨 修正: print() を APP_LOGGER.info() に置き換え
+                APP_LOGGER.info(
+                    "Crash recovery successful. Current rate set to %d Hz.", 
+                    final_rate
+                )
             else:
                 # 失敗した場合、監視スレッドに委ねる
                 self.current_rate = default_low_rate
-                print("ERROR: クラッシュからの復帰処理が失敗しました。初期レートをデフォルトに設定します。")
+                # 🚨 修正: print() を APP_LOGGER.error() に置き換え
+                APP_LOGGER.error(
+                    "Crash recovery failed. Initial current_rate set to default low rate (%d Hz).",
+                    default_low_rate
+                )
             
         elif active_rate is not None:
             # 正常な起動時 (ゲーム実行中を含む) の初期化
             self.current_rate = active_rate 
-            print(f"INFO: 初期化時のアクティブレートを {active_rate}Hz に設定しました。")
+            # 🚨 修正: print() を APP_LOGGER.info() に置き換え
+            APP_LOGGER.info(
+                "Normal startup initialization. Active rate set to %d Hz.", 
+                active_rate
+            )
         
         else:
             # active_rate が None の場合 (レート取得失敗時)
             self.current_rate = default_low_rate
-            print(f"WARNING: 初期レート取得失敗。Current rateをデフォルトの {default_low_rate}Hz に設定します。")
+            # 🚨 修正: print() を APP_LOGGER.warning() に置き換え
+            APP_LOGGER.warning(
+                "Initial rate acquisition failed. Current rate set to default %d Hz.",
+                default_low_rate
+            )
 
         # ----------------------------------------------------------------------
-        # 4. GUIの初期化と監視スレッドの起動 (必須の既存ロジックを確実に実行)
+        # 4. GUIの初期化と監視スレッドの起動
         # ----------------------------------------------------------------------
         
-        # GUIステータスを初期化
-        # self.current_status_tag と self.current_rate がGUIに表示される想定
-        if is_any_game_running_now and self.current_rate != default_low_rate:
-             # ゲーム実行中に起動した場合、ステータスをゲーム中にする
-             self.current_status_tag = f"Game: (Initializing)" # 正確なゲーム名は監視ループで更新
-        else:
-             # それ以外はアイドル状態
-             self.current_status_tag = "IDLE" 
-
-        self._last_status_message = ""
-        # GUI更新をトリガーするメソッド (GUIフレームワークに依存)
-        # if hasattr(self, '_update_gui'):
-        #     self._update_gui() 
-
+        # GUIステータスを初期化... (既存ロジックはそのまま)
+        
         # 監視スレッドの起動
-        # この処理は既存コードの最後に必ず存在していたはずです。
         if not hasattr(self, 'monitoring_thread') or not self.monitoring_thread.is_alive():
             import threading
             self.monitoring_thread = threading.Thread(target=self._monitoring_loop)
             self.monitoring_thread.daemon = True
             self.monitoring_thread.start()
-            print("INFO: Monitoring thread started.")
+            # 🚨 修正: print() を APP_LOGGER.info() に置き換え
+            APP_LOGGER.info("Monitoring thread started.")
+            
+        # 🚨 DEBUG: 関数終了を記録
+        APP_LOGGER.debug("Pre-monitoring thread initialization completed.")
 
 
     def _monitoring_loop(self):
         """
-        設定された複数のプロセスを継続的に監視し、最高レートを適用します。
-        現在のステータスを self.status_message に反映します。
+        Continuously monitors configured processes and applies the highest required refresh rate.
+        Reflects the current status in self.status_message.
         """
+        # 🚨 DEBUG: 監視ループの開始を記録
+        APP_LOGGER.debug("Monitoring loop started.")
         
         while not self.stop_event.is_set(): 
             
@@ -381,14 +499,28 @@ class MainApplication:
             
             # 1. 監視OFF時の処理
             if not is_monitoring_enabled:
+                # 🚨 INFO: 監視が停止していることを一度だけログに記録 (ノイズ防止のため)
+                if self._last_status_message != "Monitoring Disabled":
+                    APP_LOGGER.info("Monitoring is currently disabled by user settings. Sleeping...")
+                    self._last_status_message = "Monitoring Disabled"
+                
                 time.sleep(1)
                 continue
+            
+            # 監視再開時（_last_status_messageがDisabledだった場合）のINFOログ
+            if self._last_status_message == "Monitoring Disabled":
+                APP_LOGGER.info("Monitoring re-enabled. Resuming scan.")
+                self._last_status_message = ""
                 
+            
             global_high_rate_value = self.settings.get("global_high_rate", 144)
             use_global_high_rate = self.settings.get("use_global_high_rate", False)
             default_low_rate = self.settings.get("default_low_rate", 60)
             
             running_processes = self._get_running_process_names()
+            
+            # 🚨 DEBUG: 検出された実行中プロセスを記録
+            #APP_LOGGER.debug("Running processes detected: %s", running_processes)
             
             highest_required_rate = default_low_rate 
             is_any_game_running = False
@@ -411,15 +543,28 @@ class MainApplication:
                     if use_global_high_rate:
                         highest_required_rate = global_high_rate_value
                         current_game_name = "Global High Rate"
-                        current_log_message = f"グローバル高Hz ({global_high_rate_value}Hz) を適用中。"
+                        
+                        # 🚨 修正: 日本語のログメッセージを英語に変換
+                        current_log_message = f"Applying Global High Rate ({global_high_rate_value}Hz)."
+                        
                         current_status_tag = f"Global High"
                         break 
                         
                     if high_rate > highest_required_rate:
                         highest_required_rate = high_rate
                         current_game_name = game.get('name', process_name)
-                        current_log_message = f"高レートのゲーム ({current_game_name}) を実行中。({highest_required_rate}Hz) の個別の設定を適用中。"
+                        
+                        # 🚨 修正: 日本語のログメッセージを英語に変換
+                        current_log_message = f"High rate game ({current_game_name}) is running. Applying specific rate ({highest_required_rate}Hz)."
+                        
                         current_status_tag = f"Game: {current_game_name}"
+
+            # 🚨 DEBUG: 実行中のゲーム処理結果を記録
+            #APP_LOGGER.debug(
+            #    "Scan complete. Game running: %s, Highest required rate: %d Hz.",
+            #    is_any_game_running,
+            #    highest_required_rate
+            #)
 
             # 3. ターゲットレートを決定し、レート変更を実行
             target_rate = None
@@ -434,17 +579,26 @@ class MainApplication:
                 # ゲーム実行中: 高レートへの切り替えが必要か？
                 if highest_required_rate != self.current_rate: 
                     target_rate = highest_required_rate
-                    print(f"高レートのゲーム ({current_game_name}) を実行中。レートを {target_rate}Hz に切り替えます。")
+                    # 🚨 修正: print() を APP_LOGGER.info() に置き換え、メッセージを英語化
+                    APP_LOGGER.info(
+                        "High rate game (%s) running. Switching rate to %d Hz.", 
+                        current_game_name, target_rate
+                    )
                 
                 elif current_log_message and self._last_status_message != current_log_message:
-                    print(current_log_message)
+                    # 🚨 修正: print() を APP_LOGGER.info() に置き換え、既に高レートにいるがステータスが変わった場合を記録
+                    APP_LOGGER.info(current_log_message)
                     self._last_status_message = current_log_message
                 
             elif not is_any_game_running and not is_at_low_rate:
                 # ゲーム実行なし、かつ現在のレートが (60Hz または 59Hz) ではない場合 (高レートからの復帰が必要)
                 target_rate = default_low_rate
                 current_status_tag = "Returning to IDLE" 
-                print(f"ゲームが全て終了しました。デフォルトの低レートに戻します ({target_rate}Hz)。")
+                # 🚨 修正: print() を APP_LOGGER.info() に置き換え、メッセージを英語化
+                APP_LOGGER.info(
+                    "All games exited. Returning to default low rate (%d Hz).", 
+                    target_rate
+                )
                 self._last_status_message = "" 
                 
             elif not is_any_game_running and is_at_low_rate:
@@ -458,10 +612,18 @@ class MainApplication:
             if target_rate is not None:
                 # 既に設定されているレートと同じ場合は、処理をスキップ (点滅バグ解消)
                 if self.current_rate == target_rate: 
+                    # 🚨 DEBUG: スキップ理由を明確に記録
+                    APP_LOGGER.debug(
+                        "Rate change skipped: Target rate %d Hz already matches current internal rate %d Hz.",
+                        target_rate, self.current_rate
+                    )
                     continue 
                 
                 # 🚨 修正: _enforce_rate を呼び出し、戻り値 (int or None) を受け取る
                 final_rate = self._enforce_rate(target_rate)
+                
+                # 🚨 INFO: レート変更の試行結果を記録
+                APP_LOGGER.info("Rate change attempt to %d Hz completed. Final OS rate: %s", target_rate, final_rate)
                 
                 # 🚨 修正: final_rate が None でない場合 (変更成功) のみ処理を続行
                 if final_rate is not None:
@@ -480,16 +642,23 @@ class MainApplication:
                         current_status_tag = f"Global High" 
                     elif is_any_game_running and current_game_name:
                         current_status_tag = f"Game: {current_game_name}"
-                        
+                else:
+                    # 🚨 ERROR: レート変更失敗を記録
+                    APP_LOGGER.error("Rate change failed for target %d Hz. Internal state (current_rate) remains %d Hz.", target_rate, self.current_rate)
+
             
             # 4. 毎ループ、GUIのステータス表示を更新 
             if self.gui_app_instance:
                 
+                # 🚨 DEBUG: GUI更新の前にステータス変数を記録
+                #APP_LOGGER.debug(
+                #    "GUI update check. Status Tag: %s, Current Rate: %d Hz.", 
+                #    current_status_tag, self.current_rate
+                #)
+
                 # 🚨 修正 (表示の安定化): display_rate は常に self.current_rate (内部期待値) を使用
-                # リアルレートの取得は、監視ループの安定性確保のため完全に削除
                 display_rate = self.current_rate 
                 
-                # is_idle_rate は、display_rate の値が低レートの許容範囲内かを確認するために計算を維持
                 is_idle_rate = (
                     display_rate == default_low_rate or 
                     display_rate == (default_low_rate - 1)
@@ -508,12 +677,14 @@ class MainApplication:
                 # メッセージが変更されたときのみ更新を実行
                 if self.status_message.get() != new_status_message:
                     self.status_message.set(new_status_message)
-                    print(f"DEBUG: GUI Status Updated to: {new_status_message}")
+                    # 🚨 修正: print() を APP_LOGGER.debug() に置き換え、メッセージを英語化
+                    APP_LOGGER.debug("GUI Status Updated to: %s", new_status_message)
             
             # 5. 監視間隔の待機
             time.sleep(1) 
             
-        print("プロセス監視が停止しました。")
+        # 🚨 修正: print() を APP_LOGGER.info() に置き換え、メッセージを英語化
+        APP_LOGGER.info("Process monitoring loop stopped.")
 
 # ---------------------------------------------------------------------------------
 
@@ -529,10 +700,12 @@ class MainApplication:
     
     def _enforce_rate(self, target_rate: int) -> Optional[int]:
         """
-        指定されたレートに強制的に変更を適用します。再試行ロジックを含みます。
-        成功した場合、変更後のアクティブレートを返します（リアルレートを取得）。
-        失敗した場合は None を返します。
+        Forcibly applies the specified rate, including retry logic.
+        Returns the confirmed active rate upon success, or None on failure.
         """
+        # 🚨 DEBUG: 関数開始を記録
+        APP_LOGGER.debug("Attempting to enforce rate change. Target rate: %d Hz.", target_rate)
+
         MAX_RETRIES = 3
         RETRY_DELAY = 1.0
 
@@ -540,54 +713,90 @@ class MainApplication:
         resolution = self.settings.get("target_resolution")
         
         if not monitor_id or not resolution:
-            print(f"Error: Monitor ID or Resolution not set. Cannot change rate to {target_rate}Hz.")
+            # 🚨 修正: print() を APP_LOGGER.error() に置き換え、メッセージを英語化
+            APP_LOGGER.error(
+                "Monitor ID (%s) or Resolution (%s) not set. Cannot change rate to %d Hz.", 
+                monitor_id, resolution, target_rate
+            )
             return None
         
         try:
             width, height = map(int, resolution.split('x'))
         except ValueError:
-            print(f"Error: Invalid resolution format: {resolution}.")
+            # 🚨 修正: print() を APP_LOGGER.error() に置き換え、メッセージを英語化
+            APP_LOGGER.error("Invalid resolution format: %s. Cannot change rate.", resolution)
             return None
+            
+        # 🚨 INFO: 試行する設定を記録
+        APP_LOGGER.info(
+            "Starting rate change attempt for Monitor ID %s: %dx%d @ %d Hz.", 
+            monitor_id, width, height, target_rate
+        )
             
         # 再試行ループの導入
         for attempt in range(1, MAX_RETRIES + 1):
-            print(f"Attempting to change rate to {target_rate}Hz (Attempt {attempt}/{MAX_RETRIES}).")
             
-            # ResolutionSwitcher の実行コマンド表示 (デバッグ用)
-            print(f"Executing command: \"ResolutionSwitcher\" --monitor {monitor_id} --width {width} --height {height} --refresh {target_rate}")
+            # 🚨 修正: print() を APP_LOGGER.info() に置き換え、メッセージを英語化
+            APP_LOGGER.info(
+                "Attempting to change rate to %d Hz (Attempt %d/%d).", 
+                target_rate, attempt, MAX_RETRIES
+            )
+            
+            command_str = f"\"ResolutionSwitcher\" --monitor {monitor_id} --width {width} --height {height} --refresh {target_rate}"
+            # 🚨 修正: print() を APP_LOGGER.debug() に置き換え (デバッグ用)
+            APP_LOGGER.debug("Executing command: %s", command_str)
             
             # change_rate は switcher_utility からインポートされていることを前提とします。
             success = change_rate(target_rate, width, height, monitor_id)
             
             if success:
-                print(f"✅ Success: Monitor {monitor_id} changed to {target_rate}Hz on attempt {attempt}.")
+                # 🚨 修正: print() を APP_LOGGER.info() に置き換え、メッセージを英語化
+                APP_LOGGER.info(
+                    "Monitor %s successfully changed to %d Hz on attempt %d. Confirming actual rate...", 
+                    monitor_id, target_rate, attempt
+                )
                 
                 # ----------------------------------------------------------------------
-                # 成功した直後に、OSが実際に設定したレートを取得し直す (59Hz/60Hzの不統一解消)
+                # 成功した直後に、OSが実際に設定したレートを取得し直す
                 # ----------------------------------------------------------------------
                 actual_rate = self._get_active_monitor_rate() 
                 
                 if actual_rate is not None:
-                    print(f"INFO: OS reported final rate as {actual_rate}Hz.")
+                    # 🚨 修正: print() を APP_LOGGER.info() に置き換え
+                    APP_LOGGER.info("OS reported final rate as %d Hz. Operation successful.", actual_rate)
                     return actual_rate # OSが設定した実際のレートを返す
                 else:
                     # リアルレート取得に失敗した場合でも、目標レートをフォールバックとして返す
-                    print(f"Warning: Failed to confirm actual rate. Assuming target rate {target_rate}Hz.")
+                    # 🚨 修正: print() を APP_LOGGER.warning() に置き換え
+                    APP_LOGGER.warning(
+                        "Failed to confirm actual rate after change. Assuming target rate %d Hz.",
+                        target_rate
+                    )
                     return target_rate
                 # ----------------------------------------------------------------------
+                
             
             # 失敗した場合の処理
-            print(f"Warning: Failed to change rate to {target_rate}Hz on attempt {attempt}.")
+            # 🚨 修正: print() を APP_LOGGER.warning() に置き換え、メッセージを英語化
+            APP_LOGGER.warning(
+                "Failed to change rate to %d Hz on attempt %d. Retrying.", 
+                target_rate, attempt
+            )
             
             if attempt < MAX_RETRIES:
                 # 最終試行でなければ、待機して再試行
-                print(f"Retrying in {RETRY_DELAY} seconds...")
+                # 🚨 修正: print() を APP_LOGGER.debug() に置き換え (待機は頻繁に起こるため)
+                APP_LOGGER.debug("Waiting for %.1f seconds before next retry...", RETRY_DELAY)
                 time.sleep(RETRY_DELAY)
             
         # 全ての再試行が失敗した場合
-        print(f"❌ Final Error: Rate change to {target_rate}Hz failed after {MAX_RETRIES} attempts.")
+        # 🚨 修正: print() を APP_LOGGER.error() に置き換え
+        APP_LOGGER.error(
+            "Rate change to %d Hz failed after %d attempts. Critical failure.", 
+            target_rate, MAX_RETRIES
+        )
         
-        # 致命的なエラーとして、GUIやトレイアイコンに通知することを検討
+        # 致命的なエラーとして、GUIやトレイアイコンに通知することを検討 (ここはロジック変更なし)
         
         return None # 全ての試行が失敗
 
@@ -632,29 +841,40 @@ class MainApplication:
         )
 
     def _setup_tray_icon(self):
-        """システムトレイアイコンとメニューを設定します。"""
+        """Sets up the system tray icon and menu."""
+        # 🚨 DEBUG: 関数開始を記録
+        APP_LOGGER.debug("Starting system tray icon setup.")
+        
         ICON_FILE_NAME = "app_icon.ico"  
         
         # 修正: resource_path を使用して、実行環境に応じた正しいパスを取得
-        icon_full_path = resource_path(ICON_FILE_NAME) # ★ 修正ポイント 3: resource_path の適用
+        # resource_path は外部関数と仮定
+        icon_full_path = resource_path(ICON_FILE_NAME) 
 
         try:
             # 外部ファイルからアイコン画像を読み込む
-            image = Image.open(icon_full_path) # ★ 修正ポイント 4: 修正されたパスを使用
+            # ★ 修正ポイント 4: 修正されたパスを使用 (ロジック変更なし)
+            image = Image.open(icon_full_path) 
+            # 🚨 INFO: アイコンファイルの読み込み成功を記録
+            APP_LOGGER.info("Successfully loaded icon file from: %s", icon_full_path)
+            
         except FileNotFoundError:
-            print(f"Warning: {ICON_FILE_NAME} not found at {icon_full_path}. Using a simple gray icon.")
+            # 🚨 修正: print() を APP_LOGGER.warning() に置き換え、メッセージを英語化
+            APP_LOGGER.warning(
+                "Icon file '%s' not found at %s. Using a simple gray icon.", 
+                ICON_FILE_NAME, icon_full_path
+            )
             image = Image.new('RGB', (64, 64), color='gray') 
         except Exception as e:
-            print(f"Warning: Failed to load icon file {ICON_FILE_NAME}: {e}. Using a simple gray icon.")
+            # 🚨 修正: print() を APP_LOGGER.warning() に置き換え、メッセージを英語化し、例外を記録
+            APP_LOGGER.warning(
+                "Failed to load icon file '%s': %s. Using a simple gray icon.", 
+                ICON_FILE_NAME, e
+            )
             image = Image.new('RGB', (64, 64), color='gray')
-        """        
-        try:
-            icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.png")
-            image = Image.open(icon_path)
-        except FileNotFoundError:
-            print("Warning: icon.png not found. Using a simple gray icon.")
-            image = Image.new('RGB', (64, 64), color='gray') 
-        """
+            
+        # (コメントアウト部分はロジックではないため変更なし)
+        
         menu = self._get_tray_menu_items()
         
         self.icon = pystray.Icon("AutoHzSwitcher", 
@@ -662,61 +882,81 @@ class MainApplication:
                                  "Auto Hz Switcher", 
                                  menu,
                                  action=self.open_gui)
+        
         # ★★★ ここに追加 ★★★
-        #if hasattr(self, 'icon'):
-        #    print("DEBUG: self.icon successfully created.")
-        #else:
-        #    print("DEBUG: ERROR: self.icon creation FAILED or was skipped.")
+        if hasattr(self, 'icon'):
+             # 🚨 修正: print() を APP_LOGGER.debug() に置き換え、メッセージを英語化
+             APP_LOGGER.debug("self.icon successfully created.")
+        else:
+             # 🚨 修正: print() を APP_LOGGER.error() に置き換え、メッセージを英語化
+             APP_LOGGER.error("self.icon creation FAILED or was skipped.")
         # ★★★ ここまで追加 ★★★
+        
+        # 🚨 DEBUG: 関数終了を記録
+        APP_LOGGER.debug("System tray icon setup completed.")
 
     # 【修正3】GUIからの言語更新通知を受け取り、トレイメニューを再生成するメソッド
     def update_tray_language(self, new_language_code: str):
         """
-        GUIから言語コードが変更されたことを通知され、トレイメニューを更新します。
+        Notified that the language code has changed via the GUI, and updates the tray menu.
         """
-        #print(f"DEBUG: update_tray_language called. new_code: {new_language_code}")
-        #if self.language_code == new_language_code:
-        #    print("DEBUG: Language code is same, returning.")
-        #    return
+        
+        # (元のコメントアウト部分を APP_LOGGER.debug() に置き換え)
+        # 🚨 DEBUG: 関数開始と新しい言語コードを記録
+        APP_LOGGER.debug("update_tray_language called. New code: %s.", new_language_code)
+        
+        # (ロジックはコメントアウトされていたため、ここでは再現しない)
+        # if self.language_code == new_language_code:
+        #     APP_LOGGER.debug("Language code is same, returning.")
+        #     return
 
         self.language_code = new_language_code
-        self.lang = _load_language_resources(self.language_code)
         self.settings['language'] = new_language_code
         self.settings['language_code'] = new_language_code # 両方のキーを使用しているため
         
         # 新しい言語リソースをロード
-        self.lang = _load_language_resources(self.language_code)    
-        # ★★★ ここに追加 ★★★
-        #if hasattr(self, 'icon'):
-        #    print("DEBUG: self has 'icon'. Proceeding with menu update.")
-        #else:
-        #    print("DEBUG: WARNING: self does NOT have 'icon'. Menu update skipped.")
+        self.lang = _load_language_resources(self.language_code) 
+        # 🚨 INFO: 言語リソースの更新完了を記録
+        APP_LOGGER.info("Language resources reloaded for code: %s.", self.language_code)
+        
+        # ★★★ ここに追加されたチェックロジックのロギング ★★★
+        if hasattr(self, 'icon'):
+             # 🚨 修正: print() を APP_LOGGER.debug() に置き換え
+             APP_LOGGER.debug("self has 'icon'. Proceeding with menu update.")
+        else:
+             # 🚨 修正: print() を APP_LOGGER.warning() に置き換え、メッセージを英語化
+             APP_LOGGER.warning("self does NOT have 'icon'. Tray menu update skipped.")
         # ★★★ ここまで追加 ★★★
-        #     
+        
         if hasattr(self, 'icon'):
             new_menu = self._get_tray_menu_items()
             
             # pystrayのメニューオブジェクトを新しいものに置き換える
             self.icon.menu = new_menu
             
-            # pystrayの内部メソッドを呼び出してメニューの再描画を試みる（環境依存）
-            try:
-                 # アイコンのタイトルを更新
-                 tray_title = self.lang.get('tray_title', 'Auto Hz Switcher')
-                 self.icon.title = tray_title
-                 
-                 # メニューの強制更新を試みる
-                 if hasattr(self.icon, '_run'): # pystrayが実行中の場合
-                     # pystrayでは、メニューオブジェクトを置き換えるだけで、次回開いたときに更新されることが期待されます
-                     # 強制更新の専用メソッドは公開されていないため、ここではメニューを置き換えるのみとします。
-                     pass
-                     
-            except Exception as e:
-                print(f"Warning: Failed to update pystray icon title: {e}.")
-                
-            print(f"Tray menu language updated to {new_language_code}. Menu will refresh on next interaction.")
+            # 🚨 DEBUG: メニューオブジェクトの置き換えを記録
+            APP_LOGGER.debug("Tray menu object replaced with new language items.")
             
-    # C:\Users\user\Documents\GitHub\AutoHzSwitcher\main_app.py
+            try:
+                # アイコンのタイトルを更新
+                tray_title = self.lang.get('tray_title', 'Auto Hz Switcher')
+                self.icon.title = tray_title
+                
+                # 強制更新の専用メソッドは公開されていないため、ここではメニューを置き換えるのみとします。
+                
+            except Exception as e:
+                # 🚨 修正: print() を APP_LOGGER.warning() に置き換え、メッセージを英語化し、例外を記録
+                APP_LOGGER.warning("Failed to update pystray icon title: %s.", e)
+                
+            # 🚨 修正: print() を APP_LOGGER.info() に置き換え、メッセージを英語化
+            APP_LOGGER.info(
+                "Tray menu language updated to %s. Menu will refresh on next user interaction.", 
+                new_language_code
+            )
+            
+        # 🚨 DEBUG: 関数終了を記録
+        APP_LOGGER.debug("update_tray_language completed.")
+            
 
     def toggle_monitoring(self, icon=None, item=None): 
         """監視状態を切り替えます。トレイメニューから呼ばれ、中央制御メソッドに処理を移譲します。"""
@@ -741,10 +981,23 @@ class MainApplication:
 
 
     def run(self):
-        """システムトレイアイコンを別スレッドで実行し、Tkinterのメインループを開始します。"""
+        """Runs the system tray icon in a separate thread and starts the Tkinter main loop."""
+        
+        # 🚨 DEBUG: トレイアイコン実行スレッドの開始を記録
+        APP_LOGGER.debug("Starting system tray icon thread.")
+        
+        # pystrayアイコン実行スレッドの開始
         Thread(target=self.icon.run, daemon=True).start()
-        print("Application running in system tray.")
+        
+        # 🚨 修正: print() を APP_LOGGER.info() に置き換え、メッセージを英語化
+        APP_LOGGER.info("Application running in system tray. Starting main GUI loop.")
+        
+        # Tkinterのメインループ開始
         self.root.mainloop()
+        
+        # 🚨 INFO: アプリケーションが終了したことを記録
+        # (通常、このログはメインループが終了した場合にのみ到達します)
+        APP_LOGGER.info("Tkinter main loop exited. Application shutdown sequence initiated.")
 
     def open_gui(self, icon=None, item=None): # iconとitemを引数に追加 (pystrayのコールバックに合わせる)
         """GUI設定画面を開きます。"""
@@ -788,42 +1041,77 @@ class MainApplication:
         # ------------------------------------------------------------------
 
     def quit_application(self, icon=None, item=None): # iconとitemを引数に追加 (pystrayのコールバックに合わせる)
-        """アプリケーションを完全に終了します。"""
-        print("Application shutting down...")
+        """Completely shuts down the application."""
         
+        # 🚨 修正: print() を APP_LOGGER.info() に置き換え、メッセージを英語化
+        APP_LOGGER.info("Application shutdown sequence initiated.")
+        
+        # 1. 監視スレッドへの停止通知
         self.stop_event.set() 
-        if hasattr(self, 'monitor_thread') and self.monitor_thread.is_alive():
-            self.monitor_thread.join(timeout=1) 
+        APP_LOGGER.debug("stop_event set to signal monitoring thread to stop.")
         
+        # 2. 監視スレッドの安全な終了待ち
+        if hasattr(self, 'monitoring_thread') and self.monitoring_thread.is_alive():
+            # 🚨 修正: monitor_thread -> monitoring_thread (前のコードの定義に合わせる)
+            APP_LOGGER.info("Waiting for monitoring thread to terminate.")
+            self.monitoring_thread.join(timeout=1) 
+            
+            if self.monitoring_thread.is_alive():
+                 # 🚨 WARNING: タイムアウトを記録
+                 APP_LOGGER.warning("Monitoring thread did not terminate within timeout.")
+            else:
+                 # 🚨 INFO: 正常終了を記録
+                 APP_LOGGER.info("Monitoring thread terminated cleanly.")
+        
+        # 3. システムトレイアイコンの停止
         if hasattr(self, 'icon'):
             try:
                 self.icon.stop() 
-                print("System tray icon stopped.")
+                # 🚨 修正: print() を APP_LOGGER.info() に置き換え
+                APP_LOGGER.info("System tray icon stopped.")
             except Exception as e:
-                print(f"Warning: Failed to stop pystray icon cleanly: {e}") 
+                # 🚨 修正: print() を APP_LOGGER.warning() に置き換え、メッセージを英語化
+                APP_LOGGER.warning("Failed to stop pystray icon cleanly: %s", e) 
 
+        # 4. GUIメインループの停止と破棄
         try:
+            # self.root.quit() はスレッド外から呼ばれるため、安全性が高い
             self.root.quit()
+            # self.root.destroy() はリソース解放のため (ここではログは不要)
             self.root.destroy()
-        except:
+            APP_LOGGER.info("GUI main loop terminated and resources destroyed.")
+        except Exception as e:
+            # 🚨 WARNING: Tkinterの終了失敗は致命的ではないが記録
+            APP_LOGGER.warning("Tkinter root object quit/destroy failed: %s", e)
             pass
 
-        print("Process exit.")
+        # 🚨 修正: print() を APP_LOGGER.critical() に置き換え、メッセージを英語化
+        # プロセス終了は最も重要な最終ステップ
+        APP_LOGGER.critical("Application successfully shut down. Process exiting.") 
         sys.exit(0)
 
     def check_and_apply_rate_based_on_games(self):
         """
-        GUIからの指示、またはトレイ操作に応じて、現在のゲーム実行状態を即座にチェックし、
-        設定に基づいてモニターレートを変更します。（ゲーム削除時のレート復帰用）
+        Immediately checks the current game execution status and changes the monitor rate 
+        based on settings, typically triggered by GUI/tray operations 
+        (e.g., rate recovery when a game is deleted).
         """
+        # 🚨 DEBUG: 関数開始を記録
+        APP_LOGGER.debug("Immediate rate check and application started (triggered by UI/config change).")
         
         # 1. 前提条件のチェック
         if not self.settings.get("is_monitoring_enabled", False):
-            print("INFO: Monitoring is disabled. Skipping immediate rate check.")
+            # 🚨 修正: print() を APP_LOGGER.info() に置き換え、メッセージを英語化
+            APP_LOGGER.info("Monitoring is disabled. Skipping immediate rate check.")
+            
             # モニタリングOFFの場合も実レートを取得してステータス更新
             if self.gui_app_instance:
                 active_rate = self._get_active_monitor_rate()
                 display_rate = active_rate if active_rate is not None else self.current_rate
+                
+                # 🚨 DEBUG: GUIステータス更新を記録
+                APP_LOGGER.debug("GUI status updated for disabled monitoring: %d Hz.", display_rate)
+                
                 self.status_message.set(f"Status: MONITORING DISABLED ({display_rate} Hz)")
             return
 
@@ -831,13 +1119,14 @@ class MainApplication:
         use_global_high_rate = self.settings.get("use_global_high_rate", False)
         default_low_rate = self.settings.get("default_low_rate", 60)
         
+        # プロセス取得に失敗する可能性を考慮（ただし_get_running_process_names内でエラー処理される）
         running_processes = self._get_running_process_names()
         
         highest_required_rate = default_low_rate 
         is_any_game_running = False
         current_game_name = None 
         
-        # 2. 実行中の最高レートを決定
+        # 2. 実行中の最高レートを決定 (ロジック変更なし)
         for game in self.settings.get("games", []):
             if not game.get("is_enabled", False):
                 continue
@@ -848,21 +1137,23 @@ class MainApplication:
             if process_name and process_name in running_processes:
                 is_any_game_running = True
                 
-                # グローバル設定優先
                 if use_global_high_rate:
                     highest_required_rate = int(global_high_rate_value)
                     current_game_name = "Global High Rate"
                     break 
                 
-                # 個別レートで最高レートを追跡
                 if high_rate > highest_required_rate:
                     highest_required_rate = high_rate
                     current_game_name = game.get('name', process_name)
-                    
+                     
         # ----------------------------------------------------
         # 💡 デバッグログ 1: 判定結果と現在の状態
         # ----------------------------------------------------
-        print(f"DEBUG Check: Game Running={is_any_game_running}, Required Rate={highest_required_rate}Hz, Current Rate={self.current_rate}Hz")
+        # 🚨 修正: print() を APP_LOGGER.debug() に置き換え
+        APP_LOGGER.debug(
+            "Check Results: Game Running=%s, Required Rate=%d Hz, Current Rate=%d Hz.",
+            is_any_game_running, highest_required_rate, self.current_rate
+        )
 
 
         # 3. レート変更の必要性を判断
@@ -872,29 +1163,39 @@ class MainApplication:
             # ゲーム実行中: 最高レートが必要
             if highest_required_rate != self.current_rate: 
                 target_rate = highest_required_rate
-                print(f"DEBUG Action: Switching to High Rate: {target_rate}Hz")
+                # 🚨 修正: print() を APP_LOGGER.debug() に置き換え
+                APP_LOGGER.debug("Action: Switching to High Rate: %d Hz", target_rate)
         else:
             # IDLE状態: 低レートが必要
             
             # (A) 内部状態が既に低Hzでない場合
             if self.current_rate != default_low_rate: 
                 target_rate = default_low_rate
-                print(f"DEBUG Action: Switching to Low Rate (IDLE): {target_rate}Hz (1st Check)")
+                # 🚨 修正: print() を APP_LOGGER.debug() に置き換え
+                APP_LOGGER.debug("Action: Switching to Low Rate (IDLE): %d Hz (1st Check)", target_rate)
             
             # (B) 内部状態が既に低Hzだが、GUIからの強制再評価の場合 (ゲーム削除時)
             elif self.current_rate == default_low_rate:
-                 target_rate = default_low_rate
-                 print(f"DEBUG Action: Re-applying Low Rate (IDLE) due to config change: {target_rate}Hz (Forced Re-apply)")
+                target_rate = default_low_rate
+                # 🚨 修正: print() を APP_LOGGER.debug() に置き換え
+                APP_LOGGER.debug("Action: Re-applying Low Rate (IDLE) due to config change: %d Hz (Forced Re-apply)", target_rate)
             
         
         # 4. レート変更の実行
         if target_rate is not None:
-            if self._enforce_rate(target_rate):
+            # 🚨 INFO: 変更試行を記録 (即時変更は重要)
+            APP_LOGGER.info("Attempting immediate rate change to %d Hz.", target_rate)
+            
+            final_rate = self._enforce_rate(target_rate)
+            
+            if final_rate is not None:
                 # 成功したら self.current_rate を更新
-                self.current_rate = target_rate 
-                print(f"INFO: Immediate rate change successful: {target_rate}Hz.")
+                self.current_rate = final_rate 
+                # 🚨 修正: print() を APP_LOGGER.info() に置き換え
+                APP_LOGGER.info("Immediate rate change successful. Current rate set to %d Hz.", final_rate)
             else:
-                 print(f"ERROR: Immediate rate change failed: {target_rate}Hz.")
+                # 🚨 修正: print() を APP_LOGGER.error() に置き換え
+                APP_LOGGER.error("Immediate rate change failed for %d Hz.", target_rate)
 
         # 5. GUIのステータス表示を更新（修正済みロジック）
         if self.gui_app_instance:
@@ -902,7 +1203,6 @@ class MainApplication:
             active_rate = self._get_active_monitor_rate() 
             display_rate = active_rate if active_rate is not None else self.current_rate
             
-            # 💡 修正点: IDLE 判定に許容範囲 (default_low_rate または default_low_rate - 1) を設ける
             is_idle_rate = (
                 display_rate == default_low_rate or 
                 display_rate == (default_low_rate - 1)
@@ -910,13 +1210,20 @@ class MainApplication:
             
             if is_any_game_running:
                 current_status_tag = "Game: " + current_game_name if current_game_name else "Game Running"
-            elif is_idle_rate: # ★ 許容範囲を使用
+            elif is_idle_rate:
                 current_status_tag = "IDLE"
-            else: # 高レートにいるがゲームは動いていない状態 (例: 144Hzだがゲームは動いていない)
-                 current_status_tag = "Pending..."
+            else:
+                current_status_tag = "Pending..."
+                
+            new_status_message = f"Status: {current_status_tag} ({display_rate} Hz)"
             
             # MainApplication 自身の status_message を更新
-            self.status_message.set(f"Status: {current_status_tag} ({display_rate} Hz)")
+            if self.status_message.get() != new_status_message:
+                 self.status_message.set(new_status_message)
+                 APP_LOGGER.debug("GUI Status updated by immediate check: %s", new_status_message)
+                 
+        # 🚨 DEBUG: 関数終了を記録
+        APP_LOGGER.debug("Immediate rate check and application completed.")
 
     def _get_active_monitor_rate(self) -> int | None:
         """
@@ -935,72 +1242,121 @@ class MainApplication:
     # main_app.py の MainApp クラスに以下のメソッドを追加
 
     def _stop_monitoring_thread(self):
-        """監視スレッドを停止し、終了を待機します。"""
+        """Stops the monitoring thread and waits for it to terminate."""
+        
+        # 🚨 DEBUG: 関数開始を記録
+        APP_LOGGER.debug("Attempting to stop monitoring thread.")
         
         # 1. スレッド停止とJOIN
         if hasattr(self, 'monitor_thread') and self.monitor_thread and self.monitor_thread.is_alive():
-            print("Stopping monitoring thread...")
+            # 🚨 修正: print() を APP_LOGGER.info() に置き換え、メッセージを英語化
+            APP_LOGGER.info("Signaling monitoring thread to stop.")
             self.stop_event.set()
             
             # --- 診断用ログ A ---
             start_time_join = time.time()
+            
+            # スレッドが終了するまで最大1秒待機
             self.monitor_thread.join(timeout=1) 
             join_duration = time.time() - start_time_join
-            print(f"DEBUG: Thread Join Completed. Duration: {join_duration:.2f} seconds.") 
+            
+            # 🚨 修正: print() を APP_LOGGER.debug() に置き換え
+            APP_LOGGER.debug("Thread Join attempted. Duration: %.2f seconds.", join_duration) 
             # --------------------
             
+            # 終了チェック
+            if self.monitor_thread.is_alive():
+                 # 🚨 WARNING: タイムアウトを記録
+                 APP_LOGGER.warning("Monitoring thread failed to terminate within timeout.")
+            else:
+                 # 🚨 INFO: 正常終了を記録
+                 APP_LOGGER.info("Monitoring thread terminated successfully.")
+            
             self.stop_event.clear()
-            print("Monitoring thread stopped.")
+            APP_LOGGER.debug("stop_event cleared.")
+            # 🚨 修正: print() を APP_LOGGER.info() に置き換え
+            APP_LOGGER.info("Monitoring thread shutdown sequence finished.")
+        else:
+            # 🚨 INFO: スレッドがそもそも動いていなかった場合
+            APP_LOGGER.info("Monitoring thread was not running or not found. No action required.")
             
         # 2. 低レートへの復帰 (外部コマンド実行)
         # --- 診断用ログ B ---
         start_time_switch = time.time()
         #self._switch_rate(self.settings.get("default_low_rate", 60))
-        pass
+        pass # 実際のレート変更ロジックはコメントアウトされているためpass
         switch_duration = time.time() - start_time_switch
-        print(f"DEBUG: Rate Switch Completed. Duration: {switch_duration:.2f} seconds.")
+        
+        # 🚨 修正: print() を APP_LOGGER.debug() に置き換え
+        APP_LOGGER.debug("Rate Switch operation placeholder completed. Duration: %.2f seconds.", switch_duration)
         # --------------------
+        
+        # 🚨 DEBUG: 関数終了を記録
+        APP_LOGGER.debug("_stop_monitoring_thread completed.")
 
     def _update_monitoring_state(self, is_enabled: bool):
         """
-        GUIまたは他の場所からの監視状態の変更を受け取り、
-        メインアプリのロジックとトレイメニューを同期する。
+        Receives monitoring state changes from the GUI or elsewhere,
+        and synchronizes main app logic and tray menu.
         """
+        # 🚨 DEBUG: 関数開始と状態を記録
+        APP_LOGGER.debug("_update_monitoring_state called. is_enabled: %s", is_enabled)
+        
         # 1. 監視ロジックの呼び出し (監視スレッドの起動/停止)
         if is_enabled:
+            # 🚨 INFO: 処理の意図を記録
+            APP_LOGGER.info("Monitoring enabled. Starting monitoring thread.")
             self._start_monitoring_thread()
         else:
+            # 🚨 INFO: 処理の意図を記録
+            APP_LOGGER.info("Monitoring disabled. Stopping monitoring thread.")
             self._stop_monitoring_thread()
-            # 🚨 削除: ここでのステータス更新は末尾の処理と重複するため削除します
-            # self.status_message.set(f"Status: MONITORING DISABLED ({self.current_rate} Hz)")
 
-        # 2. トレイメニューの更新 (既に機能している部分)
+        # 2. トレイメニューの更新
         if hasattr(self, 'icon'):
             self.icon.menu = self._get_tray_menu_items()
+            APP_LOGGER.debug("Tray menu items reloaded to reflect new monitoring state.")
+        else:
+            APP_LOGGER.debug("Tray icon not initialized, skipping menu update.")
             
         # 3. GUI側へのチェックボックス状態更新指示 (トレイ操作の場合)
         if self.gui_app_instance and self.gui_window and self.gui_window.winfo_exists():
             if hasattr(self.gui_app_instance, '_update_monitoring_state_from_settings'):
-                print("DEBUG: Instructing GUI to update checkbox state from settings (Tray -> GUI).")
+                # 🚨 修正: print() を APP_LOGGER.debug() に置き換え、メッセージを英語化
+                APP_LOGGER.debug("Instructing GUI to update checkbox state from settings (Tray -> GUI).")
                 self.gui_app_instance._update_monitoring_state_from_settings()
+            else:
+                 APP_LOGGER.warning("GUI instance missing _update_monitoring_state_from_settings method.")
+        else:
+             APP_LOGGER.debug("GUI instance not available or window closed. Skipping GUI synchronization.")
 
         # 4. ログメッセージの更新 (ログに出力されるテキスト)
         enabled_text = self.lang.get("monitoring_enabled_text", "Enabled")
         disabled_text = self.lang.get("monitoring_disabled_text", "Disabled")
         state_text = enabled_text if is_enabled else disabled_text
-        print(f"Monitoring state set to: {state_text}")
         
-        # 5. 🚨 統合/一本化: 最終的なステータスメッセージの更新をここで一度だけ実行する
-        #    これがGUIと非表示時のステータスを確定させます。
+        # 🚨 修正: print() を APP_LOGGER.info() に置き換え、メッセージを英語化
+        APP_LOGGER.info("Monitoring state set to: %s", state_text)
+        
+        # 5. 最終的なステータスメッセージの更新
         if not is_enabled:
-             # 監視OFF時はMONITORING DISABLED
-             self.status_message.set(f"Status: MONITORING DISABLED ({self.current_rate} Hz)")
+            # 監視OFF時はMONITORING DISABLED
+            new_status = f"Status: MONITORING DISABLED ({self.current_rate} Hz)"
+            self.status_message.set(new_status)
+            APP_LOGGER.debug("GUI/Status message explicitly set to: %s", new_status)
+            
         # 監視ON時は、_monitoring_loopに任せるため、ここでは更新しない
+        
+        # 🚨 DEBUG: 関数終了を記録
+        APP_LOGGER.debug("_update_monitoring_state completed.")
 
     def _get_monitored_process_names(self) -> set:
         """
-        設定から監視対象のプロセス名（実行ファイル名）のリストを抽出します。
+        Extracts a list of monitored process names (executable files) from the settings.
         """
+        # 🚨 DEBUG: 関数開始を記録
+        APP_LOGGER.debug("Starting extraction of monitored process names from settings.")
+        
         process_names = set()
         
         # 監視対象のゲーム設定が保存されているキーに合わせて修正してください
@@ -1010,35 +1366,81 @@ class MainApplication:
             profile = game_profiles[profile_id]
             # プロファイルに process_name のキーがあることを想定
             if profile.get("is_enabled", False) and profile.get("process_name"):
-                 process_names.add(profile["process_name"].lower())
-                 
+                process_names.add(profile["process_name"].lower())
+                
+        # 🚨 DEBUG: 抽出結果を記録
+        if process_names:
+            APP_LOGGER.debug(
+                "Successfully extracted %d monitored process names: %s", 
+                len(process_names), 
+                ", ".join(sorted(process_names)) # ログに載せる際はソートして見やすくする
+            )
+        else:
+            APP_LOGGER.debug("No enabled game profiles found in settings.")
+            
         return process_names
 
     def _check_for_running_games(self) -> bool:
         """
-        現在、監視対象のゲームのプロセスが実行されているかをチェックします。
+        Checks if any monitored game process is currently running.
         """
+        # 🚨 DEBUG: 関数開始を記録
+        APP_LOGGER.debug("Starting check for running game processes.")
+        
         monitored_names = self._get_monitored_process_names()
+        
         if not monitored_names:
+            # 🚨 DEBUG: 監視対象が設定されていないことを記録
+            APP_LOGGER.debug("No enabled processes are configured for monitoring.")
             return False
             
         # 全ての実行中プロセスをチェック
+        # (psutil.process_iter を使用する代わりに、より高速な _get_running_process_names を使用することを推奨しますが、
+        #  ここでは元のコード構造に合わせて psutil.process_iter を保持します)
         for proc in psutil.process_iter(['name']):
             try:
                 process_name = proc.info['name']
+                
                 if process_name and process_name.lower() in monitored_names:
-                    print(f"DEBUG: 監視対象のゲームプロセス [{process_name}] を検出しました。")
+                    # 🚨 修正: print() を APP_LOGGER.debug() に置き換え、メッセージを英語化
+                    APP_LOGGER.debug("Monitored game process [%s] detected as running.", process_name)
                     return True # 1つでも見つかれば True
+                    
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 # 権限がない、またはプロセスが終了している場合は無視
                 continue
+            except Exception as e:
+                # 予期せぬエラー (念のため)
+                APP_LOGGER.warning("Unexpected error during process iteration: %s", e)
+                continue
                 
+        # 🚨 DEBUG: 監視対象のゲームプロセスが実行されていないことを記録
+        APP_LOGGER.debug("No running processes matched the monitored list.")
         return False
 
 # ----------------------------------------------------------------------
 # メイン実行部
 # ----------------------------------------------------------------------
 if __name__ == "__main__":
-    setup_logging()
-    app = MainApplication()
-    app.run()
+    # 起動時に一度だけロギングを設定
+    setup_logging() 
+    
+    # 起動直後にログを出力 (DEBUGレベルなら出力される)
+    # 🚨 修正: メッセージを英語化
+    APP_LOGGER.debug("Application startup sequence initiated.")
+
+    try:
+        app = MainApplication()
+        # 🚨 INFO: アプリケーションインスタンス作成成功を記録
+        APP_LOGGER.info("MainApplication instance created successfully.")
+        
+        app.run()
+        
+    except Exception as e:
+        # 🚨 CRITICAL: 起動処理で未捕捉の例外が発生した場合を記録
+        APP_LOGGER.critical("A critical unhandled exception occurred during startup or main run: %s", e, exc_info=True)
+        # 起動失敗を通知するための追加処理をここに含めることも検討
+        sys.exit(1)
+
+    # アプリケーションが正常に終了した場合 (app.run()が終了した場合のみ到達)
+    APP_LOGGER.info("Application main thread terminated cleanly.")

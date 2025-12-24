@@ -1,29 +1,23 @@
 {
-    "selected_monitor_id": "\\\\.\\DISPLAY1",
+    "selected_monitor_id": "\\\\.\\DISPLAY2",
     "target_resolution": "2560x1440",
     "is_monitoring_enabled": true,
     "default_low_rate": 60,
     "use_global_high_rate": false,
     "global_high_rate": 165,
-    "language": "en",
-    "log_level": "INFO",
+    "language": "ja",
     "games": [
         {
             "name": "SF6",
             "process_name": "StreetFighter6.exe",
             "high_rate": 165,
             "is_enabled": true
-        },
-        {
-            "name": "MC",
-            "process_name": "Minecraft.Windows.exe",
-            "high_rate": 165,
-            "is_enabled": true
         }
     ],
+    "log_level": "DEBUG",
     "available_languages": [
         "ja",
         "en"
     ],
-    "language_code": "en"
+    "language_code": "ja"
 }
