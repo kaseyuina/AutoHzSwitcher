@@ -38,8 +38,8 @@ EN_JSON_PATH = resource_path("en.json")
 
 # 画像ファイル
 LOGO_PNG_PATH = resource_path("logo_tp.png")
-APP_ICON_PNG_PATH = resource_path("app_icon.png")
-APP_ICON_ICO_PATH = resource_path("app.ico")
+APP_ICON_PNG_PATH = resource_path("app_icon.ico")
+APP_ICON_ICO_PATH = resource_path("app_icon.ico")
 
 # 外部実行ファイル
 RESOLUTION_SWITCHER_EXE_PATH = resource_path("ResolutionSwitcher.exe")

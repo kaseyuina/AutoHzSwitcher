@@ -9,6 +9,8 @@ import json
 import os
 import time
 import psutil
+import logging
+from datetime import datetime
 from typing import Dict, Any, Optional
 from switcher_utility import get_monitor_capabilities, change_rate, get_current_active_rate, get_running_processes_simple, resource_path # <- resource_path を追加
 
@@ -51,6 +53,49 @@ def _load_language_resources(lang_code: str) -> Dict[str, str]:
 
 # ----------------------------------------------------------------------
 
+# ----------------------------------------------------------------------
+# ロギング設定 (Application Logger Setup)
+# ----------------------------------------------------------------------
+def setup_logging():
+    """
+    ロギング設定を行い、ファイルとコンソールに出力するように設定します。
+    製品版では INFO レベル以上を出力します。
+    """
+    
+    # ログファイルのパスを決定 (C:\Users\<Username>\AppData\Local\AutoHzSwitcher\logs\)
+    log_dir = os.path.join(os.getenv('LOCALAPPDATA', os.path.expanduser('~')), 'AutoHzSwitcher', 'logs')
+    os.makedirs(log_dir, exist_ok=True)
+    
+    # ファイル名: AutoHzSwitcher_YYYYMMDD_HHMMSS.log
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file_path = os.path.join(log_dir, f"AutoHzSwitcher_{timestamp}.log")
+    
+    # ルートロガーを設定
+    root_logger = logging.getLogger()
+    # INFO レベル以上 (INFO, WARNING, ERROR, CRITICAL) を出力
+    root_logger.setLevel(logging.INFO) 
+
+    # 既存のハンドラをクリア (二重ログ出力防止のため)
+    if root_logger.hasHandlers():
+        root_logger.handlers.clear()
+        
+    # 1. ファイルハンドラの設定
+    file_handler = logging.FileHandler(log_file_path, encoding='utf-8')
+    file_handler.setLevel(logging.INFO)
+    file_formatter = logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(module)s.%(funcName)s: %(message)s'
+    )
+    file_handler.setFormatter(file_formatter)
+    root_logger.addHandler(file_handler)
+    
+    # 2. コンソールハンドラの設定 (ターミナルに出力)
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_formatter = logging.Formatter('%(levelname)s: %(message)s')
+    console_handler.setFormatter(console_formatter)
+    root_logger.addHandler(console_handler)
+    
+    logging.info("Logging initialized successfully.")
 
 # ----------------------------------------------------------------------
 # 設定の読み込みとGUIの起動を管理するメインクラス
@@ -550,7 +595,7 @@ class MainApplication:
 
     def _setup_tray_icon(self):
         """システムトレイアイコンとメニューを設定します。"""
-        ICON_FILE_NAME = "app_icon.png"  
+        ICON_FILE_NAME = "app_icon.ico"  
         
         # 修正: resource_path を使用して、実行環境に応じた正しいパスを取得
         icon_full_path = resource_path(ICON_FILE_NAME) # ★ 修正ポイント 3: resource_path の適用
@@ -956,5 +1001,6 @@ class MainApplication:
 # メイン実行部
 # ----------------------------------------------------------------------
 if __name__ == "__main__":
+    setup_logging()
     app = MainApplication()
     app.run()
