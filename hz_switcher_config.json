@@ -5,7 +5,7 @@
     "default_low_rate": 60,
     "use_global_high_rate": false,
     "global_high_rate": 165,
-    "language": "ja",
+    "language": "English",
     "games": [
         {
             "name": "SF6",

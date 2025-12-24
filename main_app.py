@@ -175,6 +175,23 @@ class MainApplication:
         APP_LOGGER.debug("Application initialization started.")
         
         self.config_path = "hz_switcher_config.json"
+
+        # 💡 修正箇所: 設定ディレクトリの定義を追加
+        self.app_name = "AutoHzSwitcher"
+        self.settings_dir = os.path.join(
+            os.path.expanduser('~'), 
+            ".config", 
+            self.app_name
+        ) 
+        # または Windows標準のAPPDATAを使用する場合はこちら (Windows向けアプリケーションの場合):
+        # self.settings_dir = os.path.join(os.getenv('APPDATA'), self.app_name)
+        
+        # 🚨 ログを有効化する場合:
+        # APP_LOGGER.debug("Settings directory set to: %s", self.settings_dir)
+        
+        # 🚨 _load_settings でこのディレクトリ内の設定ファイルを探しているはず
+        
+        self.stop_event = Event()
         
         self.stop_event = Event() 
         self.current_rate: Optional[int] = None 
@@ -189,6 +206,11 @@ class MainApplication:
         # 🚨 INFO: 言語設定の完了を記録 (次のタスクへの橋渡し)
         APP_LOGGER.info("Language resources loaded for code: %s", self.language_code)
         
+        # 💡 修正箇所: 言語選択リストのロードを追加
+        # _load_available_languages メソッドが MainApplication クラス内に定義されていることを前提
+        self.available_languages = self._load_available_languages() 
+        APP_LOGGER.debug("Loaded available languages: %s", self.available_languages)
+
         # Tkinterのルートウィンドウを隠す
         self.root = tk.Tk()
         self.root.withdraw() 
@@ -239,7 +261,31 @@ class MainApplication:
         
         # 🚨 DEBUG: 初期化完了を記録
         APP_LOGGER.debug("Application initialization completed successfully.")
+    
+    def _load_available_languages(self) -> Dict[str, str]:
+        """使用可能な言語とその表示名を外部ファイル (languages.json) からロードします。"""
         
+        # 💡 os, json のインポートはファイル上部で行われていることを前提とします
+        
+        # self.settings_dir が __init__ で既に設定されている必要があります
+        languages_file_path = os.path.join(self.settings_dir, "languages.json")
+        
+        if os.path.exists(languages_file_path):
+            try:
+                # ファイルがUTF-8で保存されていることを想定
+                with open(languages_file_path, 'r', encoding='utf-8') as f:
+                    APP_LOGGER.debug("Loading available languages from: %s", languages_file_path)
+                    return json.load(f)
+            except Exception as e:
+                APP_LOGGER.error("Failed to load languages.json: %s", e)
+        
+        # 🚨 失敗時/ファイルが存在しない場合のフォールバック (デフォルトの言語リスト)
+        APP_LOGGER.warning("languages.json not found or failed to load. Using hardcoded default.")
+        return {
+            "ja": "Japanese",
+            "en": "English"
+        }
+    
     # --- 設定管理メソッド ---
     def _get_default_settings(self) -> Dict[str, Any]:
         """デフォルト設定を返します。（複数ゲーム対応）"""

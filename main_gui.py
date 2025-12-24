@@ -463,7 +463,7 @@ class HzSwitcherApp:
             logo_label.pack(pady=(0, 15))
         # ★★★★★★★★★★★★★★★★★★★★★★★★★★
 
-        # 🚨 [言語設定] ドロップダウン 
+        # 🚨 [言語設定] ドロップダウン (修正ブロック)
         APP_LOGGER.debug("Creating Language selection widget.")
         lang_frame = ttk.Frame(main_frame)
         lang_frame.pack(fill='x', pady=(0, 10))
@@ -471,12 +471,27 @@ class HzSwitcherApp:
         
         ttk.Label(lang_frame, text=self.lang.get("language_setting")).grid(row=0, column=0, padx=5, sticky='w')
 
+        # 1. MainApplicationから利用可能な言語リストを取得 (例: {"ja": "Japanese", "en": "English"})
+        self.available_languages = self.app.available_languages 
+        
+        # 2. 表示名リスト: ['Japanese', 'English', ...]
+        self.language_display_names = list(self.available_languages.values()) 
+        
+        # 3. 現在の設定コードから表示名を取得
+        current_lang_code = self.selected_language_code.get() 
+        current_display_name = self.available_languages.get(current_lang_code, "English") 
+        
+        # 🚨 修正: 言語設定のStringVarを、表示名（例: Japanese）で初期化
+        self.selected_language_code.set(current_display_name) 
+
+        # 言語選択ドロップダウンの構築
         self.language_dropdown = ttk.Combobox(
             lang_frame, 
             textvariable=self.selected_language_code, 
-            values=self.app.settings.get("available_languages", ["ja","en"]), 
+            # 🚨 修正: 言語コードではなく表示名リストを設定
+            values=self.language_display_names, 
             state='readonly', 
-            width=5
+            width=12 # 🚨 修正: 表示名に合わせて幅を調整
         )
         self.language_dropdown.grid(row=0, column=1, padx=(5, 10), sticky='w')
         self.language_dropdown.bind('<<ComboboxSelected>>', self._change_language)
@@ -646,9 +661,24 @@ class HzSwitcherApp:
     def _change_language(self, event):
         """
         言語ドロップダウンが変更されたときに言語を切り替える処理。
-        ★ 修正: 現在の設定と同じ言語が選択された場合は処理をスキップ ★
+        ★ 修正: ドロップダウンが「表示名」になったため、言語コードに変換するロジックを追加 ★
         """
-        new_lang_code = self.selected_language_code.get()
+        
+        # 1. ドロップダウンから選択された「表示名」を取得 (例: "Japanese")
+        selected_display_name = self.selected_language_code.get()
+        
+        # 2. 表示名から言語コード (ja, en) を逆引きする
+        new_lang_code = None
+        # self.available_languages は _create_widgets で設定されているはず
+        for code, display_name in self.available_languages.items():
+            if display_name == selected_display_name:
+                new_lang_code = code
+                break
+        
+        if not new_lang_code:
+            APP_LOGGER.error("Failed to map selected language display name '%s' to a language code.", selected_display_name)
+            return
+
         current_lang_code = self.app.settings.get("language") # 現在の設定から言語コードを取得
         
         # 💡 修正点 1: 選択された言語が現在の設定と同じ場合は、処理を中断
@@ -656,9 +686,9 @@ class HzSwitcherApp:
             APP_LOGGER.debug("Language selection skipped. New language code '%s' is the same as current.", new_lang_code)
             return # 処理を終了し、以降の保存やタスクトレイの更新を行わない
         
-        APP_LOGGER.info("Changing language from '%s' to '%s'.", current_lang_code, new_lang_code)
+        APP_LOGGER.info("Changing language from '%s' to '%s' ('%s').", current_lang_code, new_lang_code, selected_display_name)
 
-        # 1. 設定を保存
+        # 1. 設定を保存 (ここで言語コードを保存)
         self.app.settings["language"] = new_lang_code
         self.app.save_settings(self.app.settings)
         
@@ -1990,6 +2020,30 @@ class HzSwitcherApp:
         # 3. GUIのステータス表示（必要であれば）
         # self.update_status_display() # または _update_status_display
             
+        # --- MainApplication クラス内、または初期化処理 ---
+
+    def _load_available_languages(self) -> Dict[str, str]:
+        """使用可能な言語とその表示名を外部ファイルからロードします。"""
+        languages_file_path = os.path.join(self.settings_dir, "languages.json")
+        
+        if os.path.exists(languages_file_path):
+            try:
+                with open(languages_file_path, 'r', encoding='utf-8') as f:
+                    APP_LOGGER.debug("Loading available languages from: %s", languages_file_path)
+                    return json.load(f)
+            except Exception as e:
+                APP_LOGGER.error("Failed to load languages.json: %s", e)
+        
+        # 🚨 失敗時のフォールバック (デフォルトの言語リスト)
+        APP_LOGGER.warning("languages.json not found or failed to load. Using hardcoded default.")
+        return {
+            "ja": "Japanese",
+            "en": "English"
+        }
+
+    # 💡 MainApplication の __init__ や load_settings の中で呼び出し、 self.available_languages に格納
+    # self.available_languages = self._load_available_languages()
+
 # -------------------------------------------------------------
 # 🚨 動作確認用のメインループ (if __name__ == '__main__':) 
 # -------------------------------------------------------------
