@@ -88,7 +88,8 @@ def _load_language_resources(lang_code: str) -> Dict[str, str]:
 def setup_logging():
     
     # ------------------- ログレベルの読み込み -------------------
-    config_file_path = "hz_switcher_config.json" # 設定ファイルパス
+    # 🚨 修正: AppData から設定ファイルのフルパスを取得する
+    config_file_path = get_settings_file_path() 
     log_level_str = 'INFO' # デフォルトレベルは INFO
     
     try:
@@ -110,6 +111,7 @@ def setup_logging():
     
     
     # ログファイルのパスを決定 (C:\Users\<Username>\AppData\Local\AutoHzSwitcher\logs\)
+    # Note: log_dir は get_settings_file_path とは独立して、ログ専用のフォルダを指す
     log_dir = os.path.join(os.getenv('LOCALAPPDATA', os.path.expanduser('~')), 'AutoHzSwitcher', 'logs')
     os.makedirs(log_dir, exist_ok=True)
     
@@ -163,6 +165,22 @@ def setup_logging():
     
     logging.info("Logging initialized successfully with level: %s", logging.getLevelName(log_level))
 
+def get_settings_file_path():
+    """
+    ユーザー設定ファイル (hz_switcher_config.json) の絶対パスを返す。
+    場所: %LOCALAPPDATA%/AutoHzSwitcher/hz_switcher_config.json
+    """
+    # Windows の AppData\Local フォルダを取得
+    appdata_local = os.getenv('LOCALAPPDATA', os.path.expanduser('~'))
+    
+    # アプリケーション固有のディレクトリを作成 (例: C:\Users\User\AppData\Local\AutoHzSwitcher)
+    app_config_dir = os.path.join(appdata_local, 'AutoHzSwitcher')
+    os.makedirs(app_config_dir, exist_ok=True)
+    
+    # 設定ファイルパスを返す
+    return os.path.join(app_config_dir, 'hz_switcher_config.json')
+
+
 # ----------------------------------------------------------------------
 # 設定の読み込みとGUIの起動を管理するメインクラス
 # ----------------------------------------------------------------------
@@ -175,7 +193,8 @@ class MainApplication:
         # 🚨 DEBUG: 初期化開始を記録
         APP_LOGGER.debug("Application initialization started.")
         
-        self.config_path = "hz_switcher_config.json"
+        # 🚨 修正: config_path に AppData のフルパスを設定する
+        self.config_path = get_settings_file_path()
         
         self.stop_event = Event()
         self.current_rate: Optional[int] = None 
