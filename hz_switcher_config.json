@@ -17,7 +17,13 @@
     "log_level": "DEBUG",
     "available_languages": [
         "ja",
-        "en"
+        "en",
+        "zh",
+        "ko",
+        "es",
+        "fr",
+        "de",
+        "ru"
     ],
     "language_code": "ja"
 }

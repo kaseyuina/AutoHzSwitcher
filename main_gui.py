@@ -535,7 +535,7 @@ class HzSwitcherApp:
             # 🚨 修正: 言語コードではなく表示名リストを設定
             values=self.language_display_names, 
             state='readonly', 
-            width=12 # 🚨 修正: 表示名に合わせて幅を調整
+            width=18 # 🚨 修正: 表示名に合わせて幅を調整
         )
         self.language_dropdown.grid(row=0, column=1, padx=(5, 10), sticky='w')
         self.language_dropdown.bind('<<ComboboxSelected>>', self._change_language)

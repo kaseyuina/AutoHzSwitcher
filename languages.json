@@ -1,4 +1,10 @@
 {
   "ja": "Japanese",
-  "en": "English"
+  "en": "English",
+  "zh": "Chinese (Simplified)",
+  "ko": "Korean",
+  "es": "Spanish",
+  "fr": "French",
+  "de": "German",
+  "ru": "Russian"
 }
