@@ -152,13 +152,20 @@ class HzSwitcherApp:
         self.master = master
         self.app = app_instance 
         
-        # --- 🚨 言語設定ロジック ---
-        initial_language = self.app.settings.get("language", "en")
+        # --- 🚨 修正後の言語設定ロジック ---
+        # 1. リソースロードには必ず 'language_code' (ja/en) を使用する
+        initial_language_code = self.app.settings.get("language_code", "en")
         
-        APP_LOGGER.debug("Initial language retrieved from settings: %s", initial_language)
+        APP_LOGGER.debug("Initial language code retrieved from settings: %s", initial_language_code)
         
-        self.lang = LanguageManager(initial_language) 
+        # 2. LanguageManagerに正しい言語コードを渡す
+        # LanguageManagerの定義によっては self.master.available_languages も引数に必要かもしれません
+        # 現状のコードベースの前提に基づき、コードのみを渡します。
+        self.lang = LanguageManager(initial_language_code) 
         
+        # 3. Tkinter変数の初期値には、GUI表示用の 'language' キー (例: 'English') を使用する
+        initial_language_display_name = self.app.settings.get("language", "English")
+
         master.title(self.lang.get("app_title"))
         APP_LOGGER.info("GUI Title set to: %s", master.title())
         
@@ -166,6 +173,7 @@ class HzSwitcherApp:
         try:
             from switcher_utility import APP_ICON_ICO_PATH
 
+            # PILとImageTkのインポートはファイル上部で行われている前提
             icon_image_pil = Image.open(APP_ICON_ICO_PATH) 
             self.tk_app_icon = ImageTk.PhotoImage(icon_image_pil)
             
@@ -174,22 +182,20 @@ class HzSwitcherApp:
             APP_LOGGER.debug("Successfully set window icon from %s.", APP_ICON_ICO_PATH)
 
         except FileNotFoundError:
-            # 🚨 修正: print() を APP_LOGGER.warning() に置き換え
             APP_LOGGER.warning("APP_ICON_ICO_PATH not found at %s. Skipping icon setting.", APP_ICON_ICO_PATH)
         except Exception as e:
-            # 🚨 修正: print() を APP_LOGGER.warning() に置き換え、メッセージを英語化し、例外を記録
             APP_LOGGER.warning("Failed to set window icon: %s", e)
         # ★★★★★★★★★★★★★★★★★★★★★★★★★★
         
         master.minsize(750, 730) 
         master.config(bg=DARK_BG) 
         
+        # スタイル設定
         self.style = ttk.Style(master)
         self.style.theme_use('clam') 
         
         APP_LOGGER.debug("Starting dark theme style configuration.")
         
-        # スタイル設定 (ここには print() はありませんが、完全性を保ちます)
         self.style.configure('.', background=DARK_BG, foreground=DARK_FG)
         self.style.configure('TLabel', background=DARK_BG, foreground=DARK_FG, font=COMMON_FONT_NORMAL) 
         self.style.configure('TFrame', background=DARK_BG)
@@ -226,8 +232,8 @@ class HzSwitcherApp:
         # マルチスレッド処理のフラグを追加
         self.is_monitor_loading = tk.BooleanVar(master, value=False)
         
-        # 言語設定のTkinter変数を初期化。initial_languageを値として使用する
-        self.selected_language_code = tk.StringVar(master, value=initial_language)
+        # 言語設定のTkinter変数を初期化。GUI表示名を使用する
+        self.selected_language_code = tk.StringVar(master, value=initial_language_display_name)
         
         APP_LOGGER.debug("Internal and Tkinter variables initialized.")
         
@@ -383,6 +389,9 @@ class HzSwitcherApp:
         
         settings = self.app.settings
         
+        # モニター/レート設定のロード (変更なし)
+        # ----------------------------------------------------------------------
+        
         # モニターID
         monitor_id = settings.get("selected_monitor_id", "")
         self.selected_monitor_id.set(monitor_id)
@@ -412,6 +421,34 @@ class HzSwitcherApp:
         global_high = settings.get("global_high_rate", 144) or 144
         self.global_high_rate.set(global_high)
         APP_LOGGER.debug("Setting global_high_rate: %d Hz", global_high)
+        
+        # ----------------------------------------------------------------------
+        
+        
+        # ----------------------------------------------------------------------
+        # 🚨 修正ロジック: 言語選択ボックスの表示名の矛盾を解消
+        # ----------------------------------------------------------------------
+        current_lang_code = settings.get('language_code', 'en')
+        current_display_name_in_settings = settings.get('language', 'English')
+        
+        # 1. 現在の言語コードに対応する、正しい表示名を取得
+        #    🚨 修正: キーを current_display_name_in_settings から current_lang_code に変更
+        correct_display_name = self.app.available_languages.get(current_lang_code, "English")
+        
+        # 2. Tkinter変数 (GUIのドロップダウンの値) を正しい表示名に設定
+        self.selected_language_code.set(correct_display_name)
+        
+        # 🚨 修正: ログをより簡潔な形式に変更
+        APP_LOGGER.debug("Setting Language Tk var: %s (%s)", correct_display_name, current_lang_code)
+        
+        # 3. 【重要】設定ファイル (hz_switcher_config.json) の 'language' キーをクリーンアップ
+        #    'language_code' (ja) と 'language' (English) の矛盾を解消するため
+        if current_display_name_in_settings != correct_display_name:
+             self.app.settings['language'] = correct_display_name
+             self.app.save_settings({}) # 設定を保存して矛盾を解消
+             APP_LOGGER.info("Corrected 'language' key in settings from '%s' to '%s' to match code '%s'.", 
+                              current_display_name_in_settings, correct_display_name, current_lang_code)
+        # ----------------------------------------------------------------------
         
         APP_LOGGER.debug("Initial values loading completed.")
         
@@ -477,12 +514,19 @@ class HzSwitcherApp:
         # 2. 表示名リスト: ['Japanese', 'English', ...]
         self.language_display_names = list(self.available_languages.values()) 
         
-        # 3. 現在の設定コードから表示名を取得
-        current_lang_code = self.selected_language_code.get() 
-        current_display_name = self.available_languages.get(current_lang_code, "English") 
+        # 🚨 修正: Tkinter変数からではなく、アプリ設定から正しい言語コードを取得する
+        correct_lang_code_from_settings = self.app.settings.get("language_code", "en") 
         
-        # 🚨 修正: 言語設定のStringVarを、表示名（例: Japanese）で初期化
-        self.selected_language_code.set(current_display_name) 
+        # 🚨 修正: 正しい言語コードを使って表示名を取得する
+        correct_display_name = self.available_languages.get(correct_lang_code_from_settings, "English") 
+        
+        # --- デバッグログの再定義 ---
+        APP_LOGGER.debug("--- Language Widget Init State Check ---")
+        APP_LOGGER.debug("App Settings Code (Source): %s", correct_lang_code_from_settings) # ja
+        APP_LOGGER.debug("Correct Display Name (Lookup Result): %s", correct_display_name) # Japanese
+        APP_LOGGER.debug("Tk Var Value (Before Set): %s", self.selected_language_code.get()) # (ログで確認用)
+        APP_LOGGER.debug("----------------------------------------")
+        # ----------------------------
 
         # 言語選択ドロップダウンの構築
         self.language_dropdown = ttk.Combobox(
@@ -661,7 +705,7 @@ class HzSwitcherApp:
     def _change_language(self, event):
         """
         言語ドロップダウンが変更されたときに言語を切り替える処理。
-        ★ 修正: ドロップダウンが「表示名」になったため、言語コードに変換するロジックを追加 ★
+        表示名から言語コードに変換し、設定に正しく保存します。
         """
         
         # 1. ドロップダウンから選択された「表示名」を取得 (例: "Japanese")
@@ -669,8 +713,8 @@ class HzSwitcherApp:
         
         # 2. 表示名から言語コード (ja, en) を逆引きする
         new_lang_code = None
-        # self.available_languages は _create_widgets で設定されているはず
-        for code, display_name in self.available_languages.items():
+        # self.available_languages は MainApplicationから渡された {'ja': 'Japanese', 'en': 'English'} の辞書
+        for code, display_name in self.app.available_languages.items(): # 🚨 修正: self.available_languages は self.app.available_languages にある前提
             if display_name == selected_display_name:
                 new_lang_code = code
                 break
@@ -679,30 +723,42 @@ class HzSwitcherApp:
             APP_LOGGER.error("Failed to map selected language display name '%s' to a language code.", selected_display_name)
             return
 
-        current_lang_code = self.app.settings.get("language") # 現在の設定から言語コードを取得
+        # 💡 修正点 1: 設定保存時のキーを参照する
+        current_lang_code = self.app.settings.get("language_code", "en") # 'language' ではなく 'language_code' を参照すべき
         
-        # 💡 修正点 1: 選択された言語が現在の設定と同じ場合は、処理を中断
+        # 選択された言語が現在の設定と同じ場合は、処理を中断
         if new_lang_code == current_lang_code:
             APP_LOGGER.debug("Language selection skipped. New language code '%s' is the same as current.", new_lang_code)
-            return # 処理を終了し、以降の保存やタスクトレイの更新を行わない
+            return
         
         APP_LOGGER.info("Changing language from '%s' to '%s' ('%s').", current_lang_code, new_lang_code, selected_display_name)
 
-        # 1. 設定を保存 (ここで言語コードを保存)
-        self.app.settings["language"] = new_lang_code
-        self.app.save_settings(self.app.settings)
+        # ------------------------------------------------------------------
+        # 🚨 修正ロジック: 'language'キーと'language_code'キーを明確に分ける
+        # ------------------------------------------------------------------
         
+        # 1. 設定を更新し、保存
+        # 'language'キーには表示名、'language_code'キーにはコードを保存
+        self.app.settings["language"] = selected_display_name      # 例: "Japanese"
+        self.app.settings["language_code"] = new_lang_code         # 例: "ja"
+
+        # save_settingsには、更新された self.app.settings の内容を反映させるための空の辞書か、
+        # あるいは更新されたキーを渡すだけで十分です。ここでは冗長性を避けるため空の辞書を渡します。
+        self.app.save_settings({}) 
+
         # ------------------------------------------------------------------
-        # ★ ここに update_tray_language の呼び出しを追加します ★
-        # ------------------------------------------------------------------
+        # MainApplicationのメソッドを呼び出し、タスクトレイメニューを更新
         if hasattr(self.app, 'update_tray_language'):
-            # MainApplicationのメソッドを呼び出し、タスクトレイメニューを更新
-            self.app.update_tray_language(new_lang_code) 
+            # update_tray_language には、処理をシンプルにするため、表示名ではなくコードを渡します。
+            # (もし update_tray_language が表示名を要求するなら、引数を selected_display_name に戻す)
+            # 🚨 修正: update_tray_language はコードを受け取るように修正されている前提でコードを渡す
+            self.app.update_tray_language(new_lang_code, selected_display_name) 
             APP_LOGGER.debug("Called self.app.update_tray_language.")
         # ------------------------------------------------------------------
 
         # 2. LanguageManagerを新しい言語で再初期化
-        self.lang = LanguageManager(new_lang_code)
+        # self.lang = LanguageManager(new_lang_code, self.app.available_languages) # LanguageManagerの引数構成によっては self.app.available_languages も必要
+        self.lang = LanguageManager(new_lang_code) 
         
         # 3. GUIを再構築（最も確実な方法）
         APP_LOGGER.debug("Destroying existing widgets for full GUI reload.")
@@ -712,11 +768,10 @@ class HzSwitcherApp:
         self.master.title(self.lang.get("app_title"))
 
         self._create_widgets()
-
+        
         # 💡 修正: 非同期ローディング処理を呼び出す
-        self._start_monitor_data_loading() # 👈 load_monitor_data() の代わりに呼び出す
+        self._start_monitor_data_loading() 
         APP_LOGGER.debug("Called _start_monitor_data_loading for language change.")
-        # ------------------------------------------------------------------
 
         self._show_notification(
             self.lang.get("notification_success"),
@@ -1791,6 +1846,13 @@ class HzSwitcherApp:
         use_global_high = self.use_global_high_rate.get()
         global_high_rate_value = self.global_high_rate.get()
             
+        # ----------------------------------------------------------------------
+        # 🚨 修正ロジック: 'language_code' を追加する
+        # ----------------------------------------------------------------------
+        
+        # 💡 Note: self.app.settings には、既に最新の 'language_code' が保持されているはずです。
+        #    ここでは、GUI上の表示名(language)と、アプリインスタンスのコード(language_code)の両方を明示的に含めます。
+        
         new_settings = {
             "selected_monitor_id": monitor_id,
             "target_resolution": target_res,
@@ -1798,9 +1860,19 @@ class HzSwitcherApp:
             "is_monitoring_enabled": self.is_monitoring_enabled.get(), 
             "use_global_high_rate": use_global_high,
             "global_high_rate": global_high_rate_value, 
+            
+            # 修正: 'language'キーには表示名 (例: Japanese) を含める
             "language": self.selected_language_code.get(),
-            "available_languages": self.app.settings.get("available_languages", ["ja", "en"])
+            
+            # 修正: 'language_code'キーには、アプリインスタンスが持つ正しいコード (例: ja) を含める
+            "language_code": self.app.language_code, 
+            
+            # 'available_languages'は既にMainApplicationのsettingsに含まれているため、ここでは不要だが、
+            # 元のコードを尊重し、不要なキーを含めないように修正する
+            #"available_languages": self.app.settings.get("available_languages", ["ja", "en"]) # ← 不要
         }
+        
+        # ----------------------------------------------------------------------
         
         APP_LOGGER.debug("Settings to be saved: Monitor=%s, Res=%s, LowRate=%s, Monitoring=%s, GlobalHigh=%s, Lang=%s",
                          monitor_id, target_res, default_low_rate, self.is_monitoring_enabled.get(), global_high_rate_value, new_settings["language"])

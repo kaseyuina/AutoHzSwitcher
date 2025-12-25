@@ -175,39 +175,33 @@ class MainApplication:
         APP_LOGGER.debug("Application initialization started.")
         
         self.config_path = "hz_switcher_config.json"
-
-        # 💡 修正箇所: 設定ディレクトリの定義を追加
-        self.app_name = "AutoHzSwitcher"
-        self.settings_dir = os.path.join(
-            os.path.expanduser('~'), 
-            ".config", 
-            self.app_name
-        ) 
-        # または Windows標準のAPPDATAを使用する場合はこちら (Windows向けアプリケーションの場合):
-        # self.settings_dir = os.path.join(os.getenv('APPDATA'), self.app_name)
-        
-        # 🚨 ログを有効化する場合:
-        # APP_LOGGER.debug("Settings directory set to: %s", self.settings_dir)
-        
-        # 🚨 _load_settings でこのディレクトリ内の設定ファイルを探しているはず
         
         self.stop_event = Event()
-        
-        self.stop_event = Event() 
         self.current_rate: Optional[int] = None 
         
-        # settings の読み込み (この _load_settings 関数も後でログ配置が必要です)
         self.settings = self._load_settings()
-        
-        # 【修正1】言語リソースの初期化: 設定から言語コードを読み込み、リソースをロード
-        self.language_code = self.settings.get('language', 'en')
+        # 🚨 修正: 言語コードの決定ロジックを明確にする
+
+        # 1. リソースロード用の言語コード (self.language_code) を決定する
+        #    - 設定から 'language_code' を取得し、有効でなければ 'en' をデフォルトとする。
+        self.language_code = self.settings.get('language_code', 'en')
+        if self.language_code not in ['ja', 'en']:
+            APP_LOGGER.warning("Invalid 'language_code' found (%s). Defaulting to 'en'.", self.language_code)
+            self.language_code = 'en'
+            
+        # 2. 言語リソースのロード
+        #    - 🚨 修正: 呼び出しを1つの引数に戻す (シンプルな構成維持)
         self.lang = _load_language_resources(self.language_code)
+        
+        APP_LOGGER.info("Application initialized with language code: %s", self.language_code)
+        
+        # 3. GUI表示用の言語設定 (GUI側で使われる self.settings['language'])
+        #    - GUI側でこのキーを "Japanese" や "English" に設定しているため、そのまま維持する。
         
         # 🚨 INFO: 言語設定の完了を記録 (次のタスクへの橋渡し)
         APP_LOGGER.info("Language resources loaded for code: %s", self.language_code)
         
         # 💡 修正箇所: 言語選択リストのロードを追加
-        # _load_available_languages メソッドが MainApplication クラス内に定義されていることを前提
         self.available_languages = self._load_available_languages() 
         APP_LOGGER.debug("Loaded available languages: %s", self.available_languages)
 
@@ -230,9 +224,7 @@ class MainApplication:
         # --------------------------------------------------------------------------------------
         # 🚨 修正: current_rateの初期値設定を、実際のモニターレート取得に置き換える
         # --------------------------------------------------------------------------------------
-        # 2秒かかるが、アプリケーションの起動時の一度だけ実行されるため許容されます。
         
-        # 🚨 修正: print() を APP_LOGGER.info() に置き換え、メッセージを英語化
         APP_LOGGER.info("Performing initial active monitor rate check (This may take ~2 seconds)...")
         initial_rate = self._get_active_monitor_rate() 
         
@@ -263,12 +255,14 @@ class MainApplication:
         APP_LOGGER.debug("Application initialization completed successfully.")
     
     def _load_available_languages(self) -> Dict[str, str]:
-        """使用可能な言語とその表示名を外部ファイル (languages.json) からロードします。"""
+        """使用可能な言語とその表示名を外部ファイル (languages.json) からロードします。
+        実行可能ファイルにバンドルされていることを想定し、相対パスを使用します。
+        """
         
         # 💡 os, json のインポートはファイル上部で行われていることを前提とします
         
-        # self.settings_dir が __init__ で既に設定されている必要があります
-        languages_file_path = os.path.join(self.settings_dir, "languages.json")
+        # 🚨 修正: self.settings_dir の使用を削除し、ファイル名のみを参照
+        languages_file_path = "languages.json"
         
         if os.path.exists(languages_file_path):
             try:
@@ -296,7 +290,7 @@ class MainApplication:
             "default_low_rate": 60,
             "use_global_high_rate": False, 
             "global_high_rate": 144,      
-            "language": "en", # 🚨 修正: 言語コードを追加
+            "language": "English", # 🚨 修正: 言語コードを追加
             "games": [] 
         }
 
@@ -351,19 +345,21 @@ class MainApplication:
         # 🚨 DEBUG: 関数開始と新しい設定内容を記録
         APP_LOGGER.debug("Starting save_settings. New settings to be merged: %s", new_settings)
         
-        # 修正: 言語コードを self.settings にマージする前に更新しておく
-        # main_gui.pyから呼ばれる場合、new_settingsには新しい language_code が含まれている
+        # 既存の設定を新しい設定で更新する
         self.settings.update(new_settings) 
-        self.language_code = self.settings.get('language', 'ja')
+        
+        # 🚨 修正箇所: languageキーではなく、language_codeキーを参照する
+        # self.language_code には、常に 'ja' または 'en' のコードが入るようにする
+        self.language_code = self.settings.get('language_code', 'en')
 
         # 🚨 INFO: 保存前の最終設定を確認
+        # ログメッセージも、language_codeを正しく表示するように修正
         APP_LOGGER.info("Attempting to save configuration to '%s'. Language code set to: %s", self.config_path, self.language_code)
 
         try:
             with open(self.config_path, 'w', encoding='utf-8') as f:
                 json.dump(self.settings, f, indent=4)
                 
-            # 🚨 修正: print() を APP_LOGGER.info() に置き換え、メッセージを英語化
             APP_LOGGER.info("Settings successfully saved to: %s", self.config_path)
             
             # ----------------------------------------------------------------------
@@ -372,7 +368,6 @@ class MainApplication:
             # ----------------------------------------------------------------------
             
         except IOError as e:
-            # 🚨 修正: print() を APP_LOGGER.error() に置き換え、メッセージを英語化し、例外を記録
             APP_LOGGER.error("Failed to write configuration file '%s': %s", self.config_path, e)
 
         # 🚨 DEBUG: 関数終了を記録
@@ -942,7 +937,7 @@ class MainApplication:
         APP_LOGGER.debug("System tray icon setup completed.")
 
     # 【修正3】GUIからの言語更新通知を受け取り、トレイメニューを再生成するメソッド
-    def update_tray_language(self, new_language_code: str):
+    def update_tray_language(self, new_language_code: str, selected_display_name: str):
         """
         Notified that the language code has changed via the GUI, and updates the tray menu.
         """
@@ -957,7 +952,7 @@ class MainApplication:
         #     return
 
         self.language_code = new_language_code
-        self.settings['language'] = new_language_code
+        self.settings['language'] = selected_display_name
         self.settings['language_code'] = new_language_code # 両方のキーを使用しているため
         
         # 新しい言語リソースをロード
