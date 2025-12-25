@@ -2110,24 +2110,24 @@ class HzSwitcherApp:
             
         # --- MainApplication クラス内、または初期化処理 ---
 
-    def _load_available_languages(self) -> Dict[str, str]:
-        """使用可能な言語とその表示名を外部ファイルからロードします。"""
-        languages_file_path = os.path.join(self.settings_dir, "languages.json")
-        
-        if os.path.exists(languages_file_path):
-            try:
-                with open(languages_file_path, 'r', encoding='utf-8') as f:
-                    APP_LOGGER.debug("Loading available languages from: %s", languages_file_path)
-                    return json.load(f)
-            except Exception as e:
-                APP_LOGGER.error("Failed to load languages.json: %s", e)
-        
-        # 🚨 失敗時のフォールバック (デフォルトの言語リスト)
-        APP_LOGGER.warning("languages.json not found or failed to load. Using hardcoded default.")
-        return {
-            "ja": "Japanese",
-            "en": "English"
-        }
+    #def _load_available_languages(self) -> Dict[str, str]:
+    #    """使用可能な言語とその表示名を外部ファイルからロードします。"""
+    #    languages_file_path = os.path.join(self.settings_dir, "languages.json")
+    #    
+    #    if os.path.exists(languages_file_path):
+    #        try:
+    #            with open(languages_file_path, 'r', encoding='utf-8') as f:
+    #                APP_LOGGER.debug("Loading available languages from: %s", languages_file_path)
+    #                return json.load(f)
+    #        except Exception as e:
+    #            APP_LOGGER.error("Failed to load languages.json: %s", e)
+    #    
+    #    # 🚨 失敗時のフォールバック (デフォルトの言語リスト)
+    #    APP_LOGGER.warning("languages.json not found or failed to load. Using hardcoded default.")
+    #    return {
+    #        "ja": "Japanese",
+    #        "en": "English"
+    #    }
 
     # 💡 MainApplication の __init__ や load_settings の中で呼び出し、 self.available_languages に格納
     # self.available_languages = self._load_available_languages()

@@ -256,25 +256,22 @@ class MainApplication:
         APP_LOGGER.debug("Application initialization completed successfully.")
     
     def _load_available_languages(self) -> Dict[str, str]:
-        """使用可能な言語とその表示名を外部ファイル (languages.json) からロードします。
-        実行可能ファイルにバンドルされていることを想定し、相対パスを使用します。
-        """
+        """使用可能な言語とその表示名を外部ファイル (languages.json) からロードします。"""
         
-        # 💡 os, json のインポートはファイル上部で行われていることを前提とします
-        
-        # 🚨 修正: self.settings_dir の使用を削除し、ファイル名のみを参照
-        languages_file_path = "languages.json"
+        # --- ★★★ 修正箇所 ★★★ ---
+        # 1. resource_path を使用して、実行可能ファイルからでも正しいパスを取得する
+        languages_file_path = resource_path("languages.json") 
+        # --------------------------
         
         if os.path.exists(languages_file_path):
             try:
-                # ファイルがUTF-8で保存されていることを想定
                 with open(languages_file_path, 'r', encoding='utf-8') as f:
                     APP_LOGGER.debug("Loading available languages from: %s", languages_file_path)
                     return json.load(f)
             except Exception as e:
                 APP_LOGGER.error("Failed to load languages.json: %s", e)
         
-        # 🚨 失敗時/ファイルが存在しない場合のフォールバック (デフォルトの言語リスト)
+        # 失敗時/ファイルが存在しない場合のフォールバック (これは残しておく)
         APP_LOGGER.warning("languages.json not found or failed to load. Using hardcoded default.")
         return {
             "ja": "Japanese",
