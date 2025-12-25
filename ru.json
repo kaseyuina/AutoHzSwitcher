@@ -69,5 +69,6 @@
     "exec_path": "Путь выполнения",
     "cpu_usage": "Использование ЦП",
     "memory_usage": "Использование памяти",
-    "loading_processes": "Загрузка процессов..."
+    "loading_processes": "Загрузка процессов...",
+    "enable_startup_registration": "Автозапуск при загрузке Windows"
 }

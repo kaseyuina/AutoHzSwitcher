@@ -69,5 +69,6 @@
     "exec_path": "执行路径",
     "cpu_usage": "CPU 使用率",
     "memory_usage": "内存使用率",
-    "loading_processes": "正在加载进程..."
+    "loading_processes": "正在加载进程...",
+    "enable_startup_registration": "开机自动运行"
 }

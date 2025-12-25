@@ -69,5 +69,6 @@
     "exec_path": "Ruta de Ejecución",
     "cpu_usage": "Uso de CPU",
     "memory_usage": "Uso de Memoria",
-    "loading_processes": "Cargando procesos..."
+    "loading_processes": "Cargando procesos...",
+    "enable_startup_registration": "Ejecutar automáticamente al iniciar Windows"
 }

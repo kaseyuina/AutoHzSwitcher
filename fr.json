@@ -69,5 +69,6 @@
     "exec_path": "Chemin d'Exécution",
     "cpu_usage": "Utilisation CPU",
     "memory_usage": "Utilisation Mémoire",
-    "loading_processes": "Chargement des processus..."
+    "loading_processes": "Chargement des processus...",
+    "enable_startup_registration": "Exécuter automatiquement au démarrage de Windows"
 }

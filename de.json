@@ -69,5 +69,6 @@
     "exec_path": "Ausführungspfad",
     "cpu_usage": "CPU-Nutzung",
     "memory_usage": "Speichernutzung",
-    "loading_processes": "Lade Prozesse..."
+    "loading_processes": "Lade Prozesse...",
+    "enable_startup_registration": "Automatisch mit Windows starten"
 }

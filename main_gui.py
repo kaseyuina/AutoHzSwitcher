@@ -229,6 +229,10 @@ class HzSwitcherApp:
         self.use_global_high_rate = tk.BooleanVar(master) 
         self.global_high_rate = tk.IntVar(master) 
 
+        # ★★★ 新規追加: 自動起動 (Startup Registration) の状態 ★★★
+        self.is_startup_enabled = tk.BooleanVar(master, value=self.app.settings.get("is_startup_enabled", False))
+        # -------------------------------------------------------------
+
         # マルチスレッド処理のフラグを追加
         self.is_monitor_loading = tk.BooleanVar(master, value=False)
         
@@ -566,6 +570,18 @@ class HzSwitcherApp:
             variable=self.is_monitoring_enabled,
             command=self._toggle_monitoring 
         ).pack(anchor='w', padx=5, pady=(0, 5))
+
+        # --- ★★★ 新規追加: 自動起動チェックボックス ★★★
+        self.is_startup_enabled = tk.BooleanVar(value=self.app.settings.get("is_startup_enabled", False))
+
+        ttk.Checkbutton(
+            monitoring_control_frame,
+            text=self.lang.get("enable_startup_registration"), 
+            variable=self.is_startup_enabled,
+            command=self.on_startup_checkbox_toggled 
+        ).pack(anchor='w', padx=5, pady=(0, 5))
+        # ---------------------------------------------
+
         ttk.Separator(main_frame, orient='horizontal').pack(fill='x', pady=5)
         
         # --- グローバルモニター・レート設定 ---
@@ -2115,6 +2131,50 @@ class HzSwitcherApp:
 
     # 💡 MainApplication の __init__ や load_settings の中で呼び出し、 self.available_languages に格納
     # self.available_languages = self._load_available_languages()
+
+    # MainGUI クラス定義内の適切な位置に追加
+
+    def on_startup_checkbox_toggled(self):
+        """
+        自動起動チェックボックスの状態変更時に呼び出されます。
+        レジストリと設定ファイルを更新します。
+        
+        修正点:
+        1. save_config() -> save_settings(self.app.settings) に修正
+        2. show_notification() -> _show_notification() に修正
+        """
+        # Tkinter変数から新しい状態を取得
+        new_state = self.is_startup_enabled.get()
+
+        # 1. レジストリを更新 (MainApplication のメソッドを呼び出す)
+        success = self.app.toggle_startup_registration(new_state)
+
+        if success:
+            # 2. アプリ設定を更新
+            # 設定保存メソッドが引数を取るため、保存前に self.app.settings を更新しておく
+            self.app.settings["is_startup_enabled"] = new_state
+            
+            # 3. 設定を保存 (self.app.save_settings は引数 new_settings: dict を要求する)
+            self.app.save_settings(self.app.settings)
+
+            # 4. 通知
+            # show_notification ではなく _show_notification を使用
+            #self._show_notification(
+            #    self.lang.get("notification_success"),
+            #    self.lang.get("success_settings_saved") 
+            #)
+            APP_LOGGER.info("Startup setting changed and saved: %s", "Enabled" if new_state else "Disabled")
+        else:
+            # レジストリ操作に失敗した場合の処理
+            error_message = self.lang.get("notification_error")
+            detail_message = f"{self.lang.get('notification_error')}: Failed to modify Windows startup settings."
+
+            # 失敗したため、GUIの表示を元の状態に戻す (トグル前の状態に戻す)
+            self.is_startup_enabled.set(not new_state) 
+            
+            # show_notification ではなく _show_notification を使用
+            self._show_notification(error_message, detail_message)
+            APP_LOGGER.error("Startup setting failed to change. Reverted state in GUI.")
 
 # -------------------------------------------------------------
 # 🚨 動作確認用のメインループ (if __name__ == '__main__':) 

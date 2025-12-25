@@ -10,6 +10,7 @@ import os
 import time
 import psutil
 import logging
+import winreg # Windowsレジストリ操作用の標準モジュール
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
 from typing import Dict, Any, Optional
@@ -1459,6 +1460,65 @@ class MainApplication:
         APP_LOGGER.debug("No running processes matched the monitored list.")
         return False
 
+    def _get_app_path(self):
+        """アプリケーションの完全な実行パスを取得します（レジストリ登録用）。"""
+        # pyinstallerなどでビルドされた場合、sys.executable は .exe ファイルのパスを返します。
+        # 開発環境の場合、python.exe のパスを返すため、より安定したパス取得が必要です。
+        # 今回は、ビルド後の .exe を想定し、sys.executable を使用します。
+        
+        # NOTE: 最終的な実行ファイル (.exe) のパスを取得
+        return os.path.abspath(sys.executable)
+
+    def toggle_startup_registration(self, enable: bool) -> bool:
+        """
+        Windowsのスタートアップにアプリケーションを登録または解除します。
+        
+        Args:
+            enable (bool): 自動起動を有効にする場合は True、解除する場合は False。
+
+        Returns:
+            bool: 操作が成功した場合は True。
+        """
+        # スタートアップ登録用のレジストリキー
+        RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+        APP_NAME = "AutoHzSwitcher" # レジストリに登録するアプリ名（任意）
+
+        try:
+            # HKEY_CURRENT_USER を開く (ユーザー固有の設定)
+            # 【★★★ 修正箇所 ★★★】: アクセス権に winreg.KEY_WRITE を明示的に追加
+            key = winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                RUN_KEY,
+                0,
+                # winreg.KEY_SET_VALUE | winreg.KEY_READ  <-- 修正前
+                winreg.KEY_SET_VALUE | winreg.KEY_READ | winreg.KEY_WRITE # <-- 修正後
+            )
+
+            if enable:
+                # 登録する場合
+                app_path = self._get_app_path()
+                
+                # コマンドプロンプトやパスにスペースが含まれることを考慮し、引用符で囲みます。
+                command = f'"{app_path}" --silent' # サイレントモードで起動することを想定
+                
+                winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, command)
+                APP_LOGGER.info("Startup registered successfully: %s", command)
+            else:
+                # 解除する場合
+                try:
+                    winreg.DeleteValue(key, APP_NAME)
+                    APP_LOGGER.info("Startup registration removed successfully.")
+                except FileNotFoundError:
+                    # すでに値がない場合はエラーを出さずに成功とみなす
+                    APP_LOGGER.warning("Startup key not found, registration already removed.")
+            
+            winreg.CloseKey(key)
+            return True
+
+        except Exception as e:
+            APP_LOGGER.error("Failed to modify startup registration: %s", e)
+            return False       
+    
 # ----------------------------------------------------------------------
 # メイン実行部
 # ----------------------------------------------------------------------

@@ -69,5 +69,6 @@
     "exec_path": "実行パス",
     "cpu_usage": "CPU",
     "memory_usage": "メモリ",
-    "loading_processes": "プロセスを読み込み中..."
+    "loading_processes": "プロセスを読み込み中...",
+    "enable_startup_registration": "Windows起動時に自動実行"
 }

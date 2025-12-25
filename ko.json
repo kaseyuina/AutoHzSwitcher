@@ -69,5 +69,6 @@
     "exec_path": "실행 경로",
     "cpu_usage": "CPU 사용량",
     "memory_usage": "메모리 사용량",
-    "loading_processes": "프로세스 로드 중..."
+    "loading_processes": "프로세스 로드 중...",
+    "enable_startup_registration": "Windows 시작 시 자동 실행"
 }
