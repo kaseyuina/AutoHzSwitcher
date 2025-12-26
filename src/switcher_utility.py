@@ -28,8 +28,8 @@ def resource_path(relative_path):
         base_path = sys._MEIPASS
     # 通常のPython環境の場合
     else:
-        # スクリプトがあるディレクトリをベースパスとする
-        base_path = os.path.abspath(os.path.dirname(__file__))
+        # 💥 修正: スクリプトがあるディレクトリ（src/）の親ディレクトリ（プロジェクトルート）をベースパスとする
+        base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..')) 
     
     # ベースパスと相対パスを結合して絶対パスを作成
     return os.path.join(base_path, relative_path)
@@ -38,17 +38,24 @@ def resource_path(relative_path):
 # 例：他のモジュールで利用できるように、パスを解決した定数を定義する
 # -------------------------------------------------------------
 
+# -------------------------------------------------------------
+# 例：他のモジュールで利用できるように、パスを解決した定数を定義する
+# -------------------------------------------------------------
+
 # 言語ファイル
-JA_JSON_PATH = resource_path("ja.json")
-EN_JSON_PATH = resource_path("en.json")
+# 💥 修正: lang/ フォルダを追加
+JA_JSON_PATH = resource_path("lang/ja.json")
+EN_JSON_PATH = resource_path("lang/en.json")
 
 # 画像ファイル
-LOGO_PNG_PATH = resource_path("logo_tp.png")
-APP_ICON_PNG_PATH = resource_path("app_icon.ico")
-APP_ICON_ICO_PATH = resource_path("app_icon.ico")
+# 💥 修正: images/ フォルダを追加
+LOGO_PNG_PATH = resource_path("images/logo_tp.png")
+APP_ICON_PNG_PATH = resource_path("images/app_icon.ico")
+APP_ICON_ICO_PATH = resource_path("images/app_icon.ico")
 
 # 外部実行ファイル
-RESOLUTION_SWITCHER_EXE_PATH = resource_path("ResolutionSwitcher.exe")
+# 💥 修正: bin/ フォルダを追加
+RESOLUTION_SWITCHER_EXE_PATH = resource_path("bin/ResolutionSwitcher.exe")
 
 # --- Configuration Settings (Constants) ---
 SWITCHER_PATH = RESOLUTION_SWITCHER_EXE_PATH

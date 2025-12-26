@@ -44,10 +44,8 @@ def _get_resource_path(relative_path: str) -> str:
         base_path = sys._MEIPASS
     except AttributeError:
         # 通常のPython実行時
-        # 実行スクリプトのディレクトリをベースとする
-        # 🚨 os.getcwd() ではなく、スクリプトファイルからの相対パスを基準とするべき
-        base_path = os.path.abspath(os.path.dirname(__file__)) 
-        # または os.path.abspath(".") でも、開発環境では動作しますが、_MEIPASSがより確実です
+        # 💥 修正: スクリプトがあるディレクトリ（src/）の親ディレクトリ（プロジェクトルート）をベースパスとする
+        base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
         
     return os.path.join(base_path, relative_path)
 
@@ -60,8 +58,8 @@ def _load_language_resources(lang_code: str) -> Dict[str, str]:
     失敗した場合、en.jsonにフォールバックし、それも失敗した場合は空の辞書を返す。
     """
     
-    # 読み込もうとしている言語ファイルのパスを _get_resource_path で解決
-    filename = f"{lang_code}.json"
+    # 💥 修正: ファイルパスに 'lang/' フォルダを追加
+    filename = f"lang/{lang_code}.json"
     path = _get_resource_path(filename)
     
     # ファイルが存在しない場合、en.jsonにフォールバック
@@ -70,8 +68,8 @@ def _load_language_resources(lang_code: str) -> Dict[str, str]:
         # 🚨 WARNING: ファイルが見つからないことをログに記録
         APP_LOGGER.warning("Language file '%s' not found. Defaulting to English (en.json).", path)
         
-        # en.json のパスを _get_resource_path で解決
-        path = _get_resource_path("en.json")
+        # 💥 修正: en.json のパスにも 'lang/' フォルダを追加
+        path = _get_resource_path("lang/en.json")
         
         # 'en.json'も存在しない場合、処理を中断
         if not os.path.exists(path):
@@ -308,8 +306,8 @@ class MainApplication:
         """使用可能な言語とその表示名を外部ファイル (languages.json) からロードします。"""
         
         # --- ★★★ 修正箇所 ★★★ ---
-        # 1. resource_path を使用して、実行可能ファイルからでも正しいパスを取得する
-        languages_file_path = resource_path("languages.json") 
+        # 💥 修正: lang/ フォルダを追加
+        languages_file_path = _get_resource_path("lang/languages.json") 
         # --------------------------
         
         if os.path.exists(languages_file_path):
@@ -933,11 +931,12 @@ class MainApplication:
         # 🚨 DEBUG: 関数開始を記録
         APP_LOGGER.debug("Starting system tray icon setup.")
         
-        ICON_FILE_NAME = "app_icon.ico"  
+        # 💥 修正: ファイル名を定数として定義し、その前にフォルダ名 'images/' を追加する
+        ICON_FILE_NAME = "images/app_icon.ico" 
         
         # 修正: resource_path を使用して、実行環境に応じた正しいパスを取得
         # resource_path は外部関数と仮定
-        icon_full_path = resource_path(ICON_FILE_NAME) 
+        icon_full_path = _get_resource_path(ICON_FILE_NAME) # 💡 main_app.pyでは _get_resource_path を使用
 
         try:
             # 外部ファイルからアイコン画像を読み込む
@@ -961,7 +960,7 @@ class MainApplication:
             )
             image = Image.new('RGB', (64, 64), color='gray')
             
-        # (コメントアウト部分はロジックではないため変更なし)
+        # (メニュー項目の取得は self._get_tray_menu_items() に依存しているためそのまま)
         
         menu = self._get_tray_menu_items()
         
@@ -1579,10 +1578,11 @@ def main():
     アプリケーションのメイン処理。多重起動チェックとミューテックス解放を含む。
     """
     APP_LOGGER.debug("Application startup sequence initiated.")
-    mutex = None # ミューテックスを try/except の外で定義
+    mutex = None 
+    app = None
 
     try:
-        # 1. ミューテックスを作成/取得
+        # 1. ミューテックスを作成/取得 (initial_owner=1 で作成)
         mutex = win32event.CreateMutex(None, 1, MUTEX_NAME)
         last_error = win32api.GetLastError() 
 
@@ -1591,60 +1591,67 @@ def main():
             # 既にミューテックスが存在する場合（＝別のインスタンスが実行中の場合）
             APP_LOGGER.info("Another instance is already running. Exiting.")
             
-            # 多重起動時のミューテックス解放（安全のため）
+            # 💥 修正: 所有していないミューテックスは解放せず、ハンドルのみ閉じて終了する。
             if mutex:
-                win32event.ReleaseMutex(mutex)
-                
+                try:
+                    win32api.CloseHandle(mutex)
+                except Exception:
+                    pass
+                    
+            # 💡 ToDo: 既に起動しているGUIを前面に持ってくる処理をここに追加する
+            
             sys.exit(0)
             
         # 3. 初回起動の場合
+        # 既に所有権 (initial_owner=1) を持った状態で、アプリケーションのメイン処理へ
         else:
-            APP_LOGGER.info("Starting new application instance.")
+            APP_LOGGER.info("Starting new application instance. Mutex acquired.")
             app = MainApplication()
             
             APP_LOGGER.info("MainApplication instance created successfully.")
 
-            # ミューテックスの参照を保持
+            # アプリケーションオブジェクトにミューテックスの参照を保持 (終了処理のため)
             app.mutex = mutex 
             
             # アプリケーションのメインループを実行 
             app.run()
             
-            # 🚨 修正: 終了時の冗長な待機ループとログを削除
-            # app.run() から戻った後、このブロックの終わりにプロセスが終了する
-            
-            # 4. ミューテックスの明示的な解放 (クリーンアップのため)
-            if app.mutex:
-                try:
-                    win32event.ReleaseMutex(app.mutex)
-                    APP_LOGGER.info("Application Mutex released successfully.")
-                except Exception as e:
-                    APP_LOGGER.warning("Failed to release Mutex: %s", e)
-                    
-            # アプリケーションが完全に終了したことを記録
+            # app.run() から戻った（終了処理が開始された）
             APP_LOGGER.critical("Application successfully shut down. Process exiting.")
 
     except Exception as e:
         # CRITICAL: 起動処理で未捕捉の例外が発生した場合を記録
         APP_LOGGER.critical("A critical unhandled exception occurred during startup or main run: %s", e, exc_info=True)
+        # 予期せぬ終了時にミューテックスが残らないよう解放を試みる
+        if app and app.mutex:
+            try:
+                win32event.ReleaseMutex(app.mutex)
+                APP_LOGGER.warning("Released mutex after critical exception.")
+            except Exception:
+                pass
         sys.exit(1)
         
-    # 🚨 以前の最後の CRITICAL ログを削除（elseブロック内に移動したため）
-
+    finally:
+        # 4. ミューテックスの解放とハンドルクローズ
+        # 💥 修正: ReleaseMutex は else ブロック内で処理されているため、ここではハンドルクローズのみ行う。
+        # (ただし、appが正常に作成されなかった場合のフォールバックとして ReleaseMutex を含めることも可能)
+        if mutex:
+             try:
+                win32api.CloseHandle(mutex)
+             except Exception:
+                 pass
+             
 # ----------------------------------------------------------------------
 # メイン実行部
 # ----------------------------------------------------------------------
 if __name__ == "__main__":
     # 起動時に一度だけロギングを設定
-    setup_logging() 
-    
-    # メイン関数（多重起動チェックとアプリ起動ロジック）を実行
-    # アプリの起動と実行ロジックはすべて main() の中に含まれているため、
-    # これ以外のコードは不要です。
+    # 💡 setup_logging() は main_app.py のどこかで定義されている前提
+    try:
+        setup_logging() 
+    except Exception as e:
+        # ロギング設定自体が失敗した場合、コンソールに直接エラーを出力
+        print(f"FATAL: Failed to set up logging: {e}", file=sys.stderr)
+        sys.exit(1)
+        
     main()
-
-    # 🚨 削除された部分:
-    # 以前残っていた APP_LOGGER.debug(...) から app.run()、exceptブロックまでの
-    # すべての起動ロジックがこの場所から削除されます。
-    
-    # APP_LOGGER.info("Application main thread terminated cleanly.") <-- これも main() 内の CRITICAL ログが出た後にプロセス終了のため不要

@@ -59,8 +59,9 @@ class LanguageManager:
     def _load_language(self):
         """Loads the JSON file corresponding to the specified language code. (Path resolved)"""
         
-        # 修正: resource_path 関数を使用して、言語ファイルの正しいパスを取得する
-        lang_file = resource_path(f"{self.language_code}.json")
+        # 💥 修正: resource_path 関数を使用して、言語ファイルの正しいパスを取得する
+        # ファイルパスに 'lang/' フォルダを追加
+        lang_file = resource_path(f"lang/{self.language_code}.json")
         
         # 🚨 DEBUG: ロード試行を記録
         APP_LOGGER.debug("Attempting to load language file from: %s", lang_file)
@@ -95,11 +96,11 @@ class LanguageManager:
         
         # 🚨 DEBUG: MISSING_KEYが発生した場合のみ警告を出す
         if text.startswith("MISSING_KEY:"):
-             APP_LOGGER.debug(
-                 "Attempted to retrieve missing language key: %s (Lang: %s)", 
-                 key, self.language_code
-             )
-             
+              APP_LOGGER.debug(
+                  "Attempted to retrieve missing language key: %s (Lang: %s)", 
+                  key, self.language_code
+               )
+              
         return text.format(**kwargs)
 
 # AppControllerStub (言語切り替え対応)
@@ -466,20 +467,23 @@ class HzSwitcherApp:
         main_frame.pack(padx=10, pady=10, fill='both', expand=True) 
         
         # ★★★ アプリロゴの表示 ★★★
+        # 💡 main_gui.pyの冒頭で from switcher_utility import LOGO_PNG_PATH が行われている前提
+        # LOGO_PNG_PATH は resource_path("images/logo_tp.png") を参照しているはず
         from switcher_utility import LOGO_PNG_PATH 
         LOGO_FILE_NAME = LOGO_PNG_PATH
         try:
             logo_image = Image.open(LOGO_FILE_NAME)
             
             # 💡 修正点: ロゴのサイズを調整 
-            MAX_HEIGHT = 100 # 最大高さを50ピクセルに設定
+            MAX_HEIGHT = 100 # 最大高さを100ピクセルに設定
             width, height = logo_image.size
             
             # 🚨 ロギング修正: print を APP_LOGGER.debug に置き換え
-            APP_LOGGER.debug("Original logo size: %dx%d", width, height)
+            APP_LOGGER.debug("Original logo size: %dx%d (from %s)", width, height, LOGO_FILE_NAME)
             
             if height > MAX_HEIGHT:
                 new_width = int(width * (MAX_HEIGHT / height))
+                # 💥 修正: Resampling.LANCZOS は PIL 9.0 以降の推奨
                 logo_image = logo_image.resize((new_width, MAX_HEIGHT), Image.Resampling.LANCZOS)
                 # 🚨 ロギング修正: print を APP_LOGGER.debug に置き換え
                 APP_LOGGER.debug("Resized logo size: %dx%d", new_width, MAX_HEIGHT)
@@ -498,9 +502,9 @@ class HzSwitcherApp:
             
             # ロゴが見つからない場合は代わりにタイトルテキストを表示
             logo_label = ttk.Label(main_frame, 
-                                    text=self.lang.get('app_title'), 
-                                    font=('Helvetica', 16, 'bold'), 
-                                    style='TLabel')
+                                     text=self.lang.get('app_title'), 
+                                     font=('Helvetica', 16, 'bold'), 
+                                     style='TLabel')
             logo_label.pack(pady=(0, 15))
         # ★★★★★★★★★★★★★★★★★★★★★★★★★★
 
