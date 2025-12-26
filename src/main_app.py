@@ -263,6 +263,7 @@ class MainApplication:
         self.gui_window = None
         self.gui_app_instance = None
         
+        # 💡 初期値は画像を参考に 'Status: Initializing...' のまま
         self.status_message = tk.StringVar(value="Status: Initializing...")
         
         self._last_status_message = ""
@@ -301,6 +302,33 @@ class MainApplication:
         
         # 🚨 DEBUG: 初期化完了を記録
         APP_LOGGER.debug("Application initialization completed successfully.")
+        
+        # ----------------------------------------------------------------------
+        # 💥 修正: 初期化完了後のステータスを更新し、レート情報を追加する
+        # ----------------------------------------------------------------------
+        is_monitoring_enabled = self.settings.get("is_monitoring_enabled", True)
+        
+        # レート表示文字列の作成 (例: " (144 Hz)" または "")
+        if self.current_rate is not None:
+            current_rate_display = f" ({self.current_rate} Hz)" 
+        else:
+            current_rate_display = ""
+
+        # 監視ステータステキストの決定 (大文字固定)
+        if is_monitoring_enabled:
+            # 監視が有効な場合
+            new_status_text = "IDLE" 
+        else:
+            # 監視が無効な場合
+            new_status_text = "MONITORING DISABLED" 
+
+        # 最終的な表示文字列の構築 (例: "Status: MONITORING DISABLED (59 Hz)")
+        # 💡 'Status: ' のプレフィックスは画像に合わせて Title Case で固定
+        new_status_value = f"Status: {new_status_text}"
+        
+        self.status_message.set(new_status_value)
+        APP_LOGGER.info("Initial operational status set to: %s", new_status_value)
+        # ----------------------------------------------------------------------
     
     def _load_available_languages(self) -> Dict[str, str]:
         """使用可能な言語とその表示名を外部ファイル (languages.json) からロードします。"""
@@ -1324,6 +1352,7 @@ class MainApplication:
     def _get_active_monitor_rate(self) -> int | None:
         """
         設定されたモニターの実リフレッシュレートを取得します。
+        (取得値は switcher_utility 側で適切な整数値に丸められている前提)
         """
         # NOTE: このメソッドを使用するには、main_app.py の冒頭で
         #       switcher_utility の get_current_active_rate をインポートしている必要があります。
@@ -1333,7 +1362,12 @@ class MainApplication:
             return None
             
         # 💡 switcher_utilityから新しい関数を呼び出す
-        return get_current_active_rate(monitor_id)
+        rate = get_current_active_rate(monitor_id)
+        
+        # 🚨 デバッグログを追加 (整数値またはNoneが返ってくることを想定)
+        APP_LOGGER.debug("Monitor rate retrieved from utility: %s Hz", rate)
+        
+        return rate
     
     # main_app.py の MainApp クラスに以下のメソッドを追加
 
