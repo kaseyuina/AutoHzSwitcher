@@ -11,6 +11,9 @@ import time
 import psutil
 import logging
 import winreg # Windowsレジストリ操作用の標準モジュール
+import win32event 
+import winerror
+import win32api
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
 from typing import Dict, Any, Optional
@@ -25,49 +28,61 @@ from main_gui import HzSwitcherApp
 # 💡 修正: get_all_process_names を削除し、get_running_processes_simple を追加
 from switcher_utility import get_monitor_capabilities, change_rate, get_current_active_rate, get_running_processes_simple
 
+MUTEX_NAME = "Global\\AutoHzSwitcher_SingleInstance_Mutex"
+
 # ----------------------------------------------------------------------
 # 🚨 1. アプリケーション共通ロガーの定義 (ファイルの冒頭)
 # ----------------------------------------------------------------------
 APP_LOGGER = logging.getLogger('AutoHzSwitcher')
 
+def _get_resource_path(relative_path: str) -> str:
+    """
+    PyInstallerでバンドルされたリソース（言語ファイル、アイコンなど）の絶対パスを取得する。
+    """
+    try:
+        # PyInstallerがファイルを実行している場合、リソースは_MEIPASSで指定された場所にある
+        base_path = sys._MEIPASS
+    except AttributeError:
+        # 通常のPython実行時
+        # 実行スクリプトのディレクトリをベースとする
+        # 🚨 os.getcwd() ではなく、スクリプトファイルからの相対パスを基準とするべき
+        base_path = os.path.abspath(os.path.dirname(__file__)) 
+        # または os.path.abspath(".") でも、開発環境では動作しますが、_MEIPASSがより確実です
+        
+    return os.path.join(base_path, relative_path)
+
 # ----------------------------------------------------------------------
-# ユーティリティ: 言語リソースの読み込み (【修正】フォールバック処理を改善)
+# ユーティリティ: 言語リソースの読み込み (PyInstaller対応パスに修正)
 # ----------------------------------------------------------------------
 def _load_language_resources(lang_code: str) -> Dict[str, str]:
-    """Load the language JSON file specified by the language code."""
+    """
+    指定された言語コードのリソースをファイルからロードする。
+    失敗した場合、en.jsonにフォールバックし、それも失敗した場合は空の辞書を返す。
+    """
     
-    # resource_path は外部関数と仮定
-    # path = resource_path(f"{lang_code}.json")
+    # 読み込もうとしている言語ファイルのパスを _get_resource_path で解決
+    filename = f"{lang_code}.json"
+    path = _get_resource_path(filename)
     
-    # 暫定的なパス定義（resource_pathを置き換えるためのダミー）
-    if lang_code == 'en':
-        path = os.path.join(os.getcwd(), "en.json")
-    else:
-        path = os.path.join(os.getcwd(), f"{lang_code}.json")
-    
-    # ------------------ ログ配置開始 ------------------
-
     # ファイルが存在しない場合、en.jsonにフォールバック
     if not os.path.exists(path):
         
-        # 🚨 修正: print() を APP_LOGGER.warning() に置き換え、メッセージを英語化
+        # 🚨 WARNING: ファイルが見つからないことをログに記録
         APP_LOGGER.warning("Language file '%s' not found. Defaulting to English (en.json).", path)
         
-        # 修正: en.json のパスを取得
-        # path = resource_path("en.json")
-        path = os.path.join(os.getcwd(), "en.json") # 暫定的なパス定義
-
+        # en.json のパスを _get_resource_path で解決
+        path = _get_resource_path("en.json")
         
-        # 'en.json'も存在しない場合
+        # 'en.json'も存在しない場合、処理を中断
         if not os.path.exists(path):
-            # 🚨 修正: print() を APP_LOGGER.error() に置き換え
+            # 🚨 ERROR: デフォルトファイルも見つからないことをログに記録
             APP_LOGGER.error("Default language file 'en.json' not found. Returning empty resources.")
-            return {} 
-    
-    # 🚨 DEBUG: ファイル読み込みの開始をログに記録
-    APP_LOGGER.debug("Attempting to load language resources from: %s", path)
+            
+            # 最終的なフォールバック（トレイメニューが完全に壊れないための最低限のキー）
+            return {"tray_title": "Auto Hz Switcher", "settings": "Settings", "exit": "Exit"}
     
     try:
+        # ファイルを開いてJSONデータをロード
         with open(path, 'r', encoding='utf-8') as f:
             data = json.load(f)
             
@@ -76,9 +91,16 @@ def _load_language_resources(lang_code: str) -> Dict[str, str]:
             return data
             
     except Exception as e:
-        # 🚨 修正: print() を APP_LOGGER.error() に置き換え、例外をログに含める
+        # 🚨 ERROR: 読み込み中のJSONパースエラーなどをログに記録
         APP_LOGGER.error("Error loading language file '%s': %s. Returning empty resources.", path, e)
+        # 読み込み失敗時の最終フォールバック
         return {}
+
+# ----------------------------------------------------------------------
+# 注意:
+# 1. _load_language_resources を呼び出す前に _get_resource_path が定義されている必要があります。
+# 2. ログメッセージの出力には APP_LOGGER が定義されている必要があります。
+# ----------------------------------------------------------------------
 
 # ----------------------------------------------------------------------
 
@@ -193,6 +215,14 @@ class MainApplication:
         # 🚨 DEBUG: 初期化開始を記録
         APP_LOGGER.debug("Application initialization started.")
         
+        # -------------------------------------------------------------
+        # ★★★ 修正箇所: ここを整理します ★★★
+        # main()関数でミューテックスオブジェクトが設定される場所
+        self.mutex = None 
+        # 🚨 修正: 二重終了フラグは不要になったため削除します
+        # self.is_shutting_down = False
+        # -------------------------------------------------------------
+
         # 🚨 修正: config_path に AppData のフルパスを設定する
         self.config_path = get_settings_file_path()
         
@@ -203,14 +233,14 @@ class MainApplication:
         # 🚨 修正: 言語コードの決定ロジックを明確にする
 
         # 1. リソースロード用の言語コード (self.language_code) を決定する
-        #    - 設定から 'language_code' を取得し、有効でなければ 'en' をデフォルトとする。
+        #    - 設定から 'language_code' を取得し、有効でなければ 'en' をデフォルトとする。
         self.language_code = self.settings.get('language_code', 'en')
         if self.language_code not in ['ja', 'en']:
             APP_LOGGER.warning("Invalid 'language_code' found (%s). Defaulting to 'en'.", self.language_code)
             self.language_code = 'en'
             
         # 2. 言語リソースのロード
-        #    - 🚨 修正: 呼び出しを1つの引数に戻す (シンプルな構成維持)
+        #    - 🚨 修正: 呼び出しを1つの引数に戻す (シンプルな構成維持)
         self.lang = _load_language_resources(self.language_code)
         
         APP_LOGGER.info("Application initialized with language code: %s", self.language_code)
@@ -959,6 +989,12 @@ class MainApplication:
         Notified that the language code has changed via the GUI, and updates the tray menu.
         """
         
+        # 🚨 修正: 引数の値が正しいかを確認するためのログを追加
+        APP_LOGGER.debug(
+            "update_tray_language called. Code: %s, Display Name: %s.", 
+            new_language_code, selected_display_name
+        )
+
         # (元のコメントアウト部分を APP_LOGGER.debug() に置き換え)
         # 🚨 DEBUG: 関数開始と新しい言語コードを記録
         APP_LOGGER.debug("update_tray_language called. New code: %s.", new_language_code)
@@ -977,6 +1013,15 @@ class MainApplication:
         # 🚨 INFO: 言語リソースの更新完了を記録
         APP_LOGGER.info("Language resources reloaded for code: %s.", self.language_code)
         
+        # 🚨 修正: ロードしたリソースから、主要なキーの文字列をログに出力
+        # これにより、JSONファイルが正しくロードされたかを視覚的に確認できる
+        exit_string = self.lang.get('exit', 'EXIT_ERROR')
+        settings_string = self.lang.get('settings', 'SETTINGS_ERROR')
+        APP_LOGGER.info(
+            "Language resources reloaded for code: %s. Test strings (Exit/Settings): %s / %s", 
+            new_language_code, exit_string, settings_string
+        )
+
         # ★★★ ここに追加されたチェックロジックのロギング ★★★
         if hasattr(self, 'icon'):
              # 🚨 修正: print() を APP_LOGGER.debug() に置き換え
@@ -1101,52 +1146,46 @@ class MainApplication:
     def quit_application(self, icon=None, item=None): # iconとitemを引数に追加 (pystrayのコールバックに合わせる)
         """Completely shuts down the application."""
         
-        # 🚨 修正: print() を APP_LOGGER.info() に置き換え、メッセージを英語化
+        # 🚨 修正箇所 1: 二重実行チェック (self.is_shutting_down フラグ関連をすべて削除)
+        # self.is_shutting_down = True の設定や、チェックも不要
+
         APP_LOGGER.info("Application shutdown sequence initiated.")
         
-        # 1. 監視スレッドへの停止通知
+        # 1. 監視スレッドへの停止通知と終了待ち (これは重要なので維持)
         self.stop_event.set() 
         APP_LOGGER.debug("stop_event set to signal monitoring thread to stop.")
         
-        # 2. 監視スレッドの安全な終了待ち
         if hasattr(self, 'monitoring_thread') and self.monitoring_thread.is_alive():
-            # 🚨 修正: monitor_thread -> monitoring_thread (前のコードの定義に合わせる)
             APP_LOGGER.info("Waiting for monitoring thread to terminate.")
             self.monitoring_thread.join(timeout=1) 
             
             if self.monitoring_thread.is_alive():
-                 # 🚨 WARNING: タイムアウトを記録
                  APP_LOGGER.warning("Monitoring thread did not terminate within timeout.")
             else:
-                 # 🚨 INFO: 正常終了を記録
                  APP_LOGGER.info("Monitoring thread terminated cleanly.")
-        
-        # 3. システムトレイアイコンの停止
+                 
+        # 2. システムトレイアイコンの停止 (これは重要なので維持)
         if hasattr(self, 'icon'):
             try:
                 self.icon.stop() 
-                # 🚨 修正: print() を APP_LOGGER.info() に置き換え
                 APP_LOGGER.info("System tray icon stopped.")
             except Exception as e:
-                # 🚨 修正: print() を APP_LOGGER.warning() に置き換え、メッセージを英語化
                 APP_LOGGER.warning("Failed to stop pystray icon cleanly: %s", e) 
-
-        # 4. GUIメインループの停止と破棄
+                
+        # 🚨 修正箇所 3: GUIメインループの停止と破棄 (pystray.stop() の後に戻す)
+        # Tkinterの終了は、pystrayがループを止めた後に行うのが一般的
         try:
-            # self.root.quit() はスレッド外から呼ばれるため、安全性が高い
-            self.root.quit()
-            # self.root.destroy() はリソース解放のため (ここではログは不要)
-            self.root.destroy()
-            APP_LOGGER.info("GUI main loop terminated and resources destroyed.")
+            if self.root:
+                # self.root.quit() はスレッド外から呼ばれるため、安全性が高い
+                self.root.quit()
+                # self.root.destroy() はリソース解放のため 
+                self.root.destroy()
+                APP_LOGGER.info("GUI main loop terminated and resources destroyed.")
         except Exception as e:
-            # 🚨 WARNING: Tkinterの終了失敗は致命的ではないが記録
             APP_LOGGER.warning("Tkinter root object quit/destroy failed: %s", e)
             pass
 
-        # 🚨 修正: print() を APP_LOGGER.critical() に置き換え、メッセージを英語化
-        # プロセス終了は最も重要な最終ステップ
-        APP_LOGGER.critical("Application successfully shut down. Process exiting.") 
-        sys.exit(0)
+        # 🚨 以前の CRITICAL ログ出力や sys.exit(0) は main() に移譲したため、空のまま
 
     def check_and_apply_rate_based_on_games(self):
         """
@@ -1534,7 +1573,64 @@ class MainApplication:
         except Exception as e:
             APP_LOGGER.error("Failed to modify startup registration: %s", e)
             return False       
-    
+
+def main():
+    """
+    アプリケーションのメイン処理。多重起動チェックとミューテックス解放を含む。
+    """
+    APP_LOGGER.debug("Application startup sequence initiated.")
+    mutex = None # ミューテックスを try/except の外で定義
+
+    try:
+        # 1. ミューテックスを作成/取得
+        mutex = win32event.CreateMutex(None, 1, MUTEX_NAME)
+        last_error = win32api.GetLastError() 
+
+        # 2. 多重起動チェック
+        if last_error == winerror.ERROR_ALREADY_EXISTS:
+            # 既にミューテックスが存在する場合（＝別のインスタンスが実行中の場合）
+            APP_LOGGER.info("Another instance is already running. Exiting.")
+            
+            # 多重起動時のミューテックス解放（安全のため）
+            if mutex:
+                win32event.ReleaseMutex(mutex)
+                
+            sys.exit(0)
+            
+        # 3. 初回起動の場合
+        else:
+            APP_LOGGER.info("Starting new application instance.")
+            app = MainApplication()
+            
+            APP_LOGGER.info("MainApplication instance created successfully.")
+
+            # ミューテックスの参照を保持
+            app.mutex = mutex 
+            
+            # アプリケーションのメインループを実行 
+            app.run()
+            
+            # 🚨 修正: 終了時の冗長な待機ループとログを削除
+            # app.run() から戻った後、このブロックの終わりにプロセスが終了する
+            
+            # 4. ミューテックスの明示的な解放 (クリーンアップのため)
+            if app.mutex:
+                try:
+                    win32event.ReleaseMutex(app.mutex)
+                    APP_LOGGER.info("Application Mutex released successfully.")
+                except Exception as e:
+                    APP_LOGGER.warning("Failed to release Mutex: %s", e)
+                    
+            # アプリケーションが完全に終了したことを記録
+            APP_LOGGER.critical("Application successfully shut down. Process exiting.")
+
+    except Exception as e:
+        # CRITICAL: 起動処理で未捕捉の例外が発生した場合を記録
+        APP_LOGGER.critical("A critical unhandled exception occurred during startup or main run: %s", e, exc_info=True)
+        sys.exit(1)
+        
+    # 🚨 以前の最後の CRITICAL ログを削除（elseブロック内に移動したため）
+
 # ----------------------------------------------------------------------
 # メイン実行部
 # ----------------------------------------------------------------------
@@ -1542,22 +1638,13 @@ if __name__ == "__main__":
     # 起動時に一度だけロギングを設定
     setup_logging() 
     
-    # 起動直後にログを出力 (DEBUGレベルなら出力される)
-    # 🚨 修正: メッセージを英語化
-    APP_LOGGER.debug("Application startup sequence initiated.")
+    # メイン関数（多重起動チェックとアプリ起動ロジック）を実行
+    # アプリの起動と実行ロジックはすべて main() の中に含まれているため、
+    # これ以外のコードは不要です。
+    main()
 
-    try:
-        app = MainApplication()
-        # 🚨 INFO: アプリケーションインスタンス作成成功を記録
-        APP_LOGGER.info("MainApplication instance created successfully.")
-        
-        app.run()
-        
-    except Exception as e:
-        # 🚨 CRITICAL: 起動処理で未捕捉の例外が発生した場合を記録
-        APP_LOGGER.critical("A critical unhandled exception occurred during startup or main run: %s", e, exc_info=True)
-        # 起動失敗を通知するための追加処理をここに含めることも検討
-        sys.exit(1)
-
-    # アプリケーションが正常に終了した場合 (app.run()が終了した場合のみ到達)
-    APP_LOGGER.info("Application main thread terminated cleanly.")
+    # 🚨 削除された部分:
+    # 以前残っていた APP_LOGGER.debug(...) から app.run()、exceptブロックまでの
+    # すべての起動ロジックがこの場所から削除されます。
+    
+    # APP_LOGGER.info("Application main thread terminated cleanly.") <-- これも main() 内の CRITICAL ログが出た後にプロセス終了のため不要
