@@ -228,17 +228,31 @@ class MainApplication:
         self.current_rate: Optional[int] = None 
         
         self.settings = self._load_settings()
-        # 🚨 修正: 言語コードの決定ロジックを明確にする
-
+        
+        # -------------------------------------------------------------
+        # 💥 修正 (V5/V6.1): 言語コードの動的決定とバリデーション
+        # -------------------------------------------------------------
+        # 💡 修正箇所: 言語選択リストのロードを追加 (順序変更)
+        self.available_languages = self._load_available_languages() 
+        APP_LOGGER.debug("Loaded available languages: %s", self.available_languages)
+        
         # 1. リソースロード用の言語コード (self.language_code) を決定する
         #    - 設定から 'language_code' を取得し、有効でなければ 'en' をデフォルトとする。
-        self.language_code = self.settings.get('language_code', 'en')
-        if self.language_code not in ['ja', 'en']:
-            APP_LOGGER.warning("Invalid 'language_code' found (%s). Defaulting to 'en'.", self.language_code)
+        
+        # 💥 修正: ハードコードされた SUPPORTED_LANGUAGES を削除し、動的リストからコードを抽出
+        available_codes = set(self.available_languages.keys()) 
+
+        determined_lang_code = self.settings.get('language_code', 'en')
+        
+        if determined_lang_code not in available_codes:
+            APP_LOGGER.warning(
+                "Configured language code '%s' is not supported by the resources or languages.json. Falling back to 'en'.", determined_lang_code
+            )
             self.language_code = 'en'
-            
+        else:
+            self.language_code = determined_lang_code
+        
         # 2. 言語リソースのロード
-        #    - 🚨 修正: 呼び出しを1つの引数に戻す (シンプルな構成維持)
         self.lang = _load_language_resources(self.language_code)
         
         APP_LOGGER.info("Application initialized with language code: %s", self.language_code)
@@ -248,10 +262,14 @@ class MainApplication:
         
         # 🚨 INFO: 言語設定の完了を記録 (次のタスクへの橋渡し)
         APP_LOGGER.info("Language resources loaded for code: %s", self.language_code)
-        
-        # 💡 修正箇所: 言語選択リストのロードを追加
-        self.available_languages = self._load_available_languages() 
-        APP_LOGGER.debug("Loaded available languages: %s", self.available_languages)
+
+        # -------------------------------------------------------------
+        # 💥 追加 (V3/V6.1): タスクトレイメニュー用の静的テキストの準備
+        # -------------------------------------------------------------
+        self._menu_open_settings_text = self.lang.get('menu_open_settings', 'Open Settings')
+        self._menu_exit_text = self.lang.get('menu_exit', 'Exit')
+        APP_LOGGER.debug("Tray menu static texts initialized.")
+        # -------------------------------------------------------------
 
         # Tkinterのルートウィンドウを隠す
         self.root = tk.Tk()
@@ -268,6 +286,7 @@ class MainApplication:
         
         self._last_status_message = ""
         
+        # _setup_tray_icon に渡す静的文字列がここで確定している (V3/V6.1)
         self._setup_tray_icon() # setup_trayを_setup_tray_iconにリネーム
 
         # --------------------------------------------------------------------------------------
@@ -918,40 +937,39 @@ class MainApplication:
     
     def _get_tray_menu_items(self):
         """
-        【修正2】現在の言語設定に基づいてトレイメニュー項目を生成します。
-        pystray.Menuにラムダ関数やメニュー項目自体を動的に更新するためのラッパーを使用します。
+        【最終確定版】__init__ で決定された静的文字列と、動的な監視切り替えメニューで構成します。
         """
 
-        def get_item_text(key: str, fallback: str):
-            """メニュー項目テキストを取得するためのクロージャ"""
-            return self.lang.get(key, fallback)
-
+        # 監視切り替えメニューのテキスト取得関数 (動的なテキスト変更のため維持)
         def toggle_monitoring_text_getter(item):
             """監視状態に応じてメニューテキストを動的に変更する"""
             is_enabled = self.settings.get('is_monitoring_enabled', False)
             
-            # 言語リソースを再ロード
-            #self.lang = _load_language_resources(self.settings.get('language', 'ja'))
+            # self.lang からテキストを取得 (フォールバックは英語)
             if is_enabled:
-                return get_item_text('menu_disable_monitoring', 'Disable Monitoring')
+                # 💡 修正: 不要な get_item_text を使わず、self.langから直接取得
+                return self.lang.get('menu_disable_monitoring', 'Disable Monitoring')
             else:
-                return get_item_text('menu_enable_monitoring', 'Enable Monitoring')
+                # 💡 修正: 不要な get_item_text を使わず、self.langから直接取得
+                return self.lang.get('menu_enable_monitoring', 'Enable Monitoring')
 
         # pystrayメニューを定義
         return pystray.Menu(
-            # 設定を開く（静的テキスト）
-            pystray.MenuItem(get_item_text('menu_open_settings', 'Open Settings'), 
+            # 1. 設定を開く（静的文字列を参照）
+            #    self._menu_open_settings_text は __init__ で既に正しい言語で設定されている
+            pystray.MenuItem(self._menu_open_settings_text, 
                              self.open_gui, default=True), 
             
-            # 監視切り替え（動的テキスト）
+            # 2. 監視切り替え（動的テキスト取得関数）
             pystray.MenuItem(
-                toggle_monitoring_text_getter, # ラムダ関数の代わりに動的なテキスト取得関数を使用
+                toggle_monitoring_text_getter, 
                 self.toggle_monitoring
             ),
             pystray.Menu.SEPARATOR,
             
-            # 終了（静的テキスト）
-            pystray.MenuItem(get_item_text('menu_exit', 'Exit'), self.quit_application)
+            # 3. 終了（静的文字列を参照）
+            #    self._menu_exit_text は __init__ で既に正しい言語で設定されている
+            pystray.MenuItem(self._menu_exit_text, self.quit_application)
         )
 
     def _setup_tray_icon(self):

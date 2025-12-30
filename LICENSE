@@ -1,21 +1,46 @@
-MIT License
+FISHBONE SOFTWARE - AUTO HZ SWITCHER PROPRIETARY SOFTWARE LICENSE AGREEMENT (EULA)
+-------------------------------------------------------------------------------
 
-Copyright (c) 2025 kaseyuina
+This License Agreement (hereinafter, this "Agreement") is entered into between you (hereinafter, the "Licensee") and Fishbone Software (hereinafter, the "Licensor"). By installing, copying, or using the Software, the Licensee agrees to be bound by all the terms and conditions of this Agreement.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+ARTICLE 1: COPYRIGHT, OWNERSHIP, AND SOURCE CODE RIGHTS
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1.1. The copyright and all intellectual property rights to the Software, its related documentation, and the publicly available Source Code (if viewable on platforms like GitHub) belong exclusively to Fishbone Software (the Licensor).
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+1.2. The purchase or use of the Software grants the Licensee a right of use (License) as stipulated in this Agreement, but does not transfer the ownership, assignment rights, or sales rights of the Software or its Source Code to the Licensee.
+
+1.3. Even if the Licensor grants the Licensee the right to view the Source Code, the Licensee is prohibited from compiling, distributing, or commercially using the Source Code as an executable file different from the Software.
+
+ARTICLE 2: GRANT OF LICENSE AND SCOPE OF USE
+
+2.1. The Licensor grants the Licensee a non-exclusive, term-limited right to use the Software in accordance with this Agreement.
+
+2.2. The Licensee may use the Software on a single computer exclusively owned or managed by the Licensee.
+
+2.3. The Software is intended for personal and non-commercial use only. A separate agreement is required for use by multiple users or organizational sharing.
+
+ARTICLE 3: PROHIBITED ACTS
+
+The Licensee is prohibited from performing the following acts:
+
+3.1. Copying, redistributing, selling, lending, transferring, or sublicensing all or part of the Software or its Source Code to any third party.
+
+3.2. Using the Software for commercial purposes (including providing services that incorporate the Software, or using it to generate direct revenue).
+
+3.3. Attempting to decompile, disassemble, reverse engineer, or otherwise analyze the Source Code of the Software.
+
+3.4. Attempting to evade or disable the license authentication or security features of the Software.
+
+ARTICLE 4: DISCLAIMER AND LIMITED WARRANTY
+
+4.1. The Software is provided "as is," and the Licensor makes no warranties whatsoever regarding suitability for a particular purpose, certainty of operation, accuracy, or freedom from bugs.
+
+4.2. The Licensor shall not be liable for any direct, indirect, incidental, or consequential damages (such as PC failure, data loss, lost profits, damage due to electricity rate fluctuations, etc.) incurred by the Licensee or a third party due to the use or inability to use the Software.
+
+4.3. The Licensee is responsible for confirming that the use of the Software does not violate the laws, regulations, and agreements of the Licensee's jurisdiction.
+
+ARTICLE 5: SUPPORT AND AMENDMENT OF AGREEMENT
+
+5.1. The Licensor will endeavor to provide necessary corrective programs (updates) within a reasonable range if major defects in the Software are confirmed, but the response to individual technical inquiries caused by the Licensee's usage environment is limited.
+
+5.2. The Licensor may change this Agreement at any time without prior consent from the Licensee. The revised agreement shall take effect from the time it is posted on the official website or the Gumroad sales page.
