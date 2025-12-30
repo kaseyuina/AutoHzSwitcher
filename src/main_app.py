@@ -206,6 +206,15 @@ def get_settings_file_path():
 # ----------------------------------------------------------------------
 
 class MainApplication:
+    # -----------------------------------------------
+    # 🚨 アプリケーション情報の定義 (追加)
+    # -----------------------------------------------
+    APP_VERSION = "1.0.0"  # リリースに合わせて更新
+    DEVELOPER_NAME = "Fishbone Software" 
+    APP_COPYRIGHT = "© 2025"
+    
+    # -----------------------------------------------
+
     # (前提) main_app.py の冒頭で APP_LOGGER が定義されていること
     # APP_LOGGER = logging.getLogger('AutoHzSwitcher') 
     def __init__(self):
@@ -937,7 +946,8 @@ class MainApplication:
     
     def _get_tray_menu_items(self):
         """
-        【最終確定版】__init__ で決定された静的文字列と、動的な監視切り替えメニューで構成します。
+        【最終確定版】メニュー項目を構成します。静的文字列への依存を避け、
+        すべてのメニューテキストを self.lang から動的に取得するように変更します。
         """
 
         # 監視切り替えメニューのテキスト取得関数 (動的なテキスト変更のため維持)
@@ -947,18 +957,18 @@ class MainApplication:
             
             # self.lang からテキストを取得 (フォールバックは英語)
             if is_enabled:
-                # 💡 修正: 不要な get_item_text を使わず、self.langから直接取得
                 return self.lang.get('menu_disable_monitoring', 'Disable Monitoring')
             else:
-                # 💡 修正: 不要な get_item_text を使わず、self.langから直接取得
                 return self.lang.get('menu_enable_monitoring', 'Enable Monitoring')
 
         # pystrayメニューを定義
         return pystray.Menu(
-            # 1. 設定を開く（静的文字列を参照）
-            #    self._menu_open_settings_text は __init__ で既に正しい言語で設定されている
-            pystray.MenuItem(self._menu_open_settings_text, 
-                             self.open_gui, default=True), 
+            # 1. 設定を開く（静的変数を使わず、毎回 self.lang から取得）
+            pystray.MenuItem(
+                self.lang.get('menu_open_settings', 'Open Settings'), # 👈 修正: self._menu_open_settings_text を削除
+                self.open_gui, 
+                default=True
+            ), 
             
             # 2. 監視切り替え（動的テキスト取得関数）
             pystray.MenuItem(
@@ -967,9 +977,11 @@ class MainApplication:
             ),
             pystray.Menu.SEPARATOR,
             
-            # 3. 終了（静的文字列を参照）
-            #    self._menu_exit_text は __init__ で既に正しい言語で設定されている
-            pystray.MenuItem(self._menu_exit_text, self.quit_application)
+            # 3. 終了（静的変数を使わず、毎回 self.lang から取得）
+            pystray.MenuItem(
+                self.lang.get('menu_exit', 'Exit'), # 👈 修正: self._menu_exit_text を削除
+                self.quit_application
+            )
         )
 
     def _setup_tray_icon(self):

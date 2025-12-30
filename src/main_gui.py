@@ -7,6 +7,8 @@ import time
 from typing import Optional, Dict, Any, List, TYPE_CHECKING
 import threading 
 from PIL import Image, ImageTk
+import subprocess # 追加
+import ctypes
 
 # ----------------------------------------------------------------------
 # 🚨 修正点 1: ロギング機能のインポートと定義
@@ -92,6 +94,8 @@ class LanguageManager:
 
     def get(self, key: str, default: Optional[str] = None, **kwargs) -> str:
         """Retrieves the text corresponding to the key and replaces placeholders."""
+        
+        # 1. 翻訳文字列の取得 (キーがない場合はデフォルト文字列またはMISSING_KEYを返す)
         text = self.resources.get(key, default or f"MISSING_KEY: {key}")
         
         # 🚨 DEBUG: MISSING_KEYが発生した場合のみ警告を出す
@@ -99,9 +103,22 @@ class LanguageManager:
               APP_LOGGER.debug(
                   "Attempted to retrieve missing language key: %s (Lang: %s)", 
                   key, self.language_code
-               )
+                 )
               
-        return text.format(**kwargs)
+        # 2. 🚨 修正: kwargs (フォーマット引数) が渡された場合にのみ .format() を実行する
+        if kwargs:
+            try:
+                return text.format(**kwargs)
+            except KeyError as e:
+                # 渡された kwargs が翻訳文字列内のプレースホルダーをすべて満たさない場合の保険
+                APP_LOGGER.error(
+                    "Missing format key '%s' required by translation text for key '%s'. Returning raw text.",
+                    e, key
+                )
+                return text
+        else:
+            # kwargsが空の場合は、フォーマットせずにそのまま返す
+            return text
 
 # AppControllerStub (言語切り替え対応)
 class AppControllerStub:
@@ -254,6 +271,148 @@ class HzSwitcherApp:
         
         APP_LOGGER.info("MainGUI initialization completed.")
 
+    # MainGUIクラスの内部にこのメソッドを追加してください
+    def _create_menubar(self):
+        """メインウィンドウの上部にメニューバーを作成し、各種項目を追加します。"""
+        
+        # 1. メニューバーの作成
+        menubar = tk.Menu(self.master)
+        self.master.config(menu=menubar)
+        APP_LOGGER.debug("Created main menubar.")
+
+        # 2. 【ファイル】メニュー（例：終了）
+        file_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label=self.lang.get('menu_file', 'File'), menu=file_menu)
+        # file_menu.add_command(label="設定を保存", command=self.app.save_settings) # 必要に応じて
+        file_menu.add_separator()
+        file_menu.add_command(label=self.lang.get('menu_exit', 'Exit'), command=self.master.quit) # アプリケーションを完全に終了する場合
+
+        # 3. 【ヘルプ】メニュー
+        help_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label=self.lang.get('menu_help', 'Help'), menu=help_menu)
+
+        # --- 新機能 A: AppDataフォルダへのジャンプ ---
+        help_menu.add_command(
+            label=self.lang.get('menu_open_appdata', 'Open Config Folder'),
+            command=self._open_appdata_folder
+        )
+        help_menu.add_separator()
+        
+        # --- 新機能 B: アプリ情報表示 ---
+        help_menu.add_command(
+            label=self.lang.get('menu_about', 'About Auto Hz Switcher'),
+            command=self._show_about_dialog
+        )
+        APP_LOGGER.debug("Menubar items (File, Help, AppData Jump, About) configured.")
+
+    # MainGUIクラスの内部にある _open_appdata_folder メソッドを修正
+    def _open_appdata_folder(self):
+        """設定ファイルがある AppData フォルダをエクスプローラーで開きます。"""
+        try:
+            appdata_dir = os.path.join(os.environ.get('LOCALAPPDATA'), 'AutoHzSwitcher')
+            
+            if not os.path.exists(appdata_dir):
+                os.makedirs(appdata_dir, exist_ok=True)
+                APP_LOGGER.warning("AppData directory did not exist and was created: %s", appdata_dir)
+
+            # 🚨 修正: check=True を削除する。これにより、explorerが非ゼロコードを返してもエラーにならない。
+            subprocess.run(['explorer', appdata_dir])
+            APP_LOGGER.info("Opened AppData directory: %s", appdata_dir)
+
+        except Exception as e:
+            error_msg = self.lang.get('error_open_appdata', 'Failed to open config folder:')
+            messagebox.showerror(self.lang.get('error', 'Error'), f"{error_msg}\n{e}")
+            APP_LOGGER.error("Failed to open AppData folder: %s", e)
+
+    # MainGUIクラスの内部にこのメソッドを追加してください
+    def _show_about_dialog(self):
+        """アプリケーション情報ダイアログを親ウィンドウ中央に表示し、モーダル性を確保し、背景色を統一します。"""
+        
+        # 1. 定数取得ロジック (self.app (MainApplication) から取得)
+        AppClass = self.app.__class__
+        APP_VERSION = getattr(AppClass, 'APP_VERSION', '1.0.0')
+        DEVELOPER_NAME = getattr(AppClass, 'DEVELOPER_NAME', 'Unknown Developer')
+        APP_COPYRIGHT = getattr(AppClass, 'APP_COPYRIGHT', '© 2024') 
+        
+        # 2. メッセージ生成ロジック
+        title = self.lang.get('about_dialog_title', 'About Auto Hz Switcher')
+        default_message = (
+            "Auto Hz Switcher\n"
+            "Version: {version}\n"
+            "Developer: {developer}\n"
+            "Copyright: {copyright}"
+        )
+        raw_message = self.lang.get('about_dialog_message', default_message)
+        
+        message = raw_message.format(
+            version=APP_VERSION, 
+            developer=DEVELOPER_NAME,
+            copyright=APP_COPYRIGHT
+        )
+
+        # 3. Toplevel ウィンドウを作成
+        dialog = tk.Toplevel(self.master)
+        dialog.title(title)
+        dialog.resizable(False, False)
+        dialog.config(bg=DARK_BG) 
+        
+        # アイコン設定
+        try:
+            # self.tk_app_icon は __init__ で定義済みと仮定
+            dialog.iconphoto(True, self.tk_app_icon)
+        except AttributeError:
+            pass 
+        
+        # 🚨 修正 1: ウィンドウ作成直後に非表示にし、フリックを防止
+        dialog.withdraw() 
+        
+        # 4. メッセージ表示ウィジェットの追加 (サイズを確定させるため先に配置)
+        
+        # ttk.Label はスタイルが適用され、背景が DARK_BG になるはず
+        msg_label = ttk.Label(dialog, text=message, justify=tk.LEFT, style='TLabel')
+        msg_label.pack(padx=20, pady=20, fill='both', expand=True)
+
+        # OKボタン（ダイアログを閉じる）
+        ok_button = ttk.Button(dialog, text="OK", command=dialog.destroy, style='TButton', width=10)
+        ok_button.pack(pady=(0, 15))
+        
+        # --- 中央配置のための計算 ---
+        # 🚨 修正 2: ウィジェット配置後にサイズを確定
+        dialog.update_idletasks()
+        
+        # ウィンドウの確定サイズを取得
+        DIALOG_WIDTH = dialog.winfo_width()
+        DIALOG_HEIGHT = dialog.winfo_height()
+
+        # 親ウィンドウの位置とサイズを取得
+        self.master.update_idletasks() # 親ウィンドウの最新位置も更新
+        parent_x = self.master.winfo_x()
+        parent_y = self.master.winfo_y()
+        parent_w = self.master.winfo_width()
+        parent_h = self.master.winfo_height()
+
+        # 中央に表示するための座標を計算
+        x = parent_x + (parent_w // 2) - (DIALOG_WIDTH // 2)
+        y = parent_y + (parent_h // 2) - (DIALOG_HEIGHT // 2)
+        
+        # ウィンドウの位置を設定 (サイズはウィジェットに任せる)
+        dialog.geometry(f'+{x}+{y}')
+        
+        # 🚨 修正 3: 座標設定が完了した後、ウィンドウを表示
+        dialog.deiconify()
+        
+        # 5. モーダル設定: メインウィンドウの操作を無効化
+        dialog.transient(self.master)
+        dialog.grab_set()
+        
+        # OKボタンにフォーカスを設定し、Enterキーで閉じられるようにする
+        ok_button.focus_set()
+        dialog.bind('<Return>', lambda e: dialog.destroy()) 
+        
+        self.master.wait_window(dialog)
+        
+        APP_LOGGER.info("Displayed about dialog (Version: %s) centrally, modally, and without flicker.", APP_VERSION)
+        
     def _start_monitor_data_loading(self):
         """Starts the task to load monitor data in a separate thread."""
         # 🚨 INFO: 重い処理の開始を記録
@@ -460,8 +619,40 @@ class HzSwitcherApp:
 
     def _create_widgets(self):
         """GUI要素を作成し配置します。（言語切り替えを追加）"""
-        
+        self._create_menubar()
         APP_LOGGER.debug("Starting GUI widget creation.")
+        
+        # 💡 [修正点 1] 見出し用フォントの定義（通常より大きく太字に）
+        # 環境に合わせて適切なフォント名とサイズを選択してください。
+        # COMMON_FONT_SIZEがない場合を考慮し、ここでは '11' を使用
+        self.header_font = ('Helvetica', 11, 'bold') 
+
+        # ====================================================================
+        # 💡 [修正] ホバー時の視認性改善のための ttk.Style マップ定義
+        # ====================================================================
+        
+        # 1. TCheckbutton のホバー（:active）時の文字色を濃くする
+        self.style.map('TCheckbutton', 
+            foreground=[
+                ('active', '#333333'),  # ホバー時の文字色: 濃い灰色
+                ('!active', 'white')    # 通常時の文字色: 白
+            ],
+            # backgroundマップは省略
+        )
+        APP_LOGGER.debug("TCheckbutton active state foreground color set to #333333 for contrast.")
+
+        # 2. Treeview.Heading のホバー（:active）時の文字色と背景色を修正
+        self.style.map('Treeview.Heading', 
+            foreground=[
+                ('active', 'black'),    # ホバー時の文字色: 黒に変更
+            ],
+            background=[
+                 ('active', '#e0e0e0') # 👈 修正箇所: 背景色を白っぽい色に変更
+            ]
+        )
+        APP_LOGGER.debug("Treeview.Heading active state foreground color set to black for contrast.")
+
+        # ====================================================================
         
         main_frame = ttk.Frame(self.master)
         main_frame.pack(padx=10, pady=10, fill='both', expand=True) 
@@ -502,9 +693,9 @@ class HzSwitcherApp:
             
             # ロゴが見つからない場合は代わりにタイトルテキストを表示
             logo_label = ttk.Label(main_frame, 
-                                     text=self.lang.get('app_title'), 
-                                     font=('Helvetica', 16, 'bold'), 
-                                     style='TLabel')
+                                            text=self.lang.get('app_title'), 
+                                            font=('Helvetica', 16, 'bold'), 
+                                            style='TLabel')
             logo_label.pack(pady=(0, 15))
         # ★★★★★★★★★★★★★★★★★★★★★★★★★★
 
@@ -514,7 +705,12 @@ class HzSwitcherApp:
         lang_frame.pack(fill='x', pady=(0, 10))
         lang_frame.grid_columnconfigure(1, weight=1)
         
-        ttk.Label(lang_frame, text=self.lang.get("language_setting")).grid(row=0, column=0, padx=5, sticky='w')
+        # 💡 [修正点 2] 言語設定の見出しに太字フォントを適用
+        ttk.Label(
+            lang_frame, 
+            text=self.lang.get("language_setting"),
+            font=self.header_font # 👈 フォントを適用
+        ).grid(row=0, column=0, padx=5, sticky='w')
 
         # 1. MainApplicationから利用可能な言語リストを取得 (例: {"ja": "Japanese", "en": "English"})
         self.available_languages = self.app.available_languages 
@@ -565,25 +761,41 @@ class HzSwitcherApp:
         # 監視有効/無効のチェックボックス
         APP_LOGGER.debug("Creating Monitoring control widget.")
         monitoring_control_frame = ttk.Frame(main_frame)
+        # main_frameに対してはpackのまま維持
         monitoring_control_frame.pack(fill='x', pady=(0, 10), padx=0) 
 
-        ttk.Label(monitoring_control_frame, text=self.lang.get("monitoring_title"), font=('Helvetica', COMMON_FONT_SIZE, 'bold')).pack(anchor='w', padx=5, pady=(5, 0))
+        # --- 配置をgridに変更するための設定 ---
+        # 2つのチェックボタンを横並びにするため、2つの列を設定し、均等に幅を広げる
+        monitoring_control_frame.grid_columnconfigure(0, weight=1) 
+        monitoring_control_frame.grid_columnconfigure(1, weight=1) 
+        # ------------------------------------
+
+        # 💡 [修正点 3] 監視設定の見出しに太字フォントを適用
+        # タイトルラベルは grid の row=0, column=0, columnspan=2 でフル幅を使う
+        ttk.Label(
+            monitoring_control_frame, 
+            text=self.lang.get("monitoring_title"), 
+            font=self.header_font
+        ).grid(row=0, column=0, columnspan=2, sticky='w', padx=5, pady=(5, 5)) 
+        
+        # プロセス監視を有効にする チェックボタン (Row 1, Column 0)
         ttk.Checkbutton(
             monitoring_control_frame, 
             text=self.lang.get("enable_monitoring"), 
             variable=self.is_monitoring_enabled,
             command=self._toggle_monitoring 
-        ).pack(anchor='w', padx=5, pady=(0, 5))
+        ).grid(row=1, column=0, sticky='w', padx=5, pady=5) # 👈 gridで配置
 
         # --- ★★★ 新規追加: 自動起動チェックボックス ★★★
         self.is_startup_enabled = tk.BooleanVar(value=self.app.settings.get("is_startup_enabled", False))
 
+        # Windows起動時に自動実行 チェックボタン (Row 1, Column 1)
         ttk.Checkbutton(
             monitoring_control_frame,
             text=self.lang.get("enable_startup_registration"), 
             variable=self.is_startup_enabled,
             command=self.on_startup_checkbox_toggled 
-        ).pack(anchor='w', padx=5, pady=(0, 5))
+        ).grid(row=1, column=1, sticky='w', padx=5, pady=5) # 👈 gridで配置
         # ---------------------------------------------
 
         ttk.Separator(main_frame, orient='horizontal').pack(fill='x', pady=5)
@@ -593,7 +805,13 @@ class HzSwitcherApp:
         global_monitor_frame = ttk.Frame(main_frame) 
         global_monitor_frame.pack(fill='x', pady=(5, 10), padx=0)
         
-        ttk.Label(global_monitor_frame, text=self.lang.get("monitor_settings_title"), font=('Helvetica', COMMON_FONT_SIZE, 'bold')).grid(row=0, column=0, columnspan=5, sticky='w', padx=5, pady=(5, 5))
+        # 💡 [修正点 4] グローバルモニター・レート設定の見出しに太字フォントを適用
+        # 既存のfontオプションを置き換え
+        ttk.Label(
+            global_monitor_frame, 
+            text=self.lang.get("monitor_settings_title"), 
+            font=self.header_font # 👈 フォントを適用
+        ).grid(row=0, column=0, columnspan=5, sticky='w', padx=5, pady=(5, 5))
         
         global_monitor_frame.grid_columnconfigure(0, weight=0) 
         global_monitor_frame.grid_columnconfigure(1, weight=1) 
@@ -639,7 +857,14 @@ class HzSwitcherApp:
         
         # --- ゲーム/アプリケーション設定 ---
         APP_LOGGER.debug("Creating Game/Application settings section.")
-        ttk.Label(main_frame, text=self.lang.get("game_app_title"), font=('Helvetica', COMMON_FONT_SIZE, 'bold')).pack(anchor='w', pady=(5, 5))
+        
+        # 💡 [修正点 5] ゲーム/アプリケーション設定の見出しに太字フォントを適用
+        # 既存のfontオプションを置き換え
+        ttk.Label(
+            main_frame, 
+            text=self.lang.get("game_app_title"), 
+            font=self.header_font # 👈 フォントを適用
+        ).pack(anchor='w', pady=(5, 5))
         
         # ゲームリスト管理セクション (Treeview) ---
         game_list_frame = ttk.Frame(main_frame)
@@ -685,6 +910,7 @@ class HzSwitcherApp:
         self.game_tree.tag_configure('enabled_row', foreground='white') 
         self.game_tree.tag_configure('disabled_row', foreground='gray')
 
+        
         self._draw_game_list()
         APP_LOGGER.debug("_draw_game_list called to populate game list.")
         
@@ -840,7 +1066,7 @@ class HzSwitcherApp:
             
             # 状態に基づいたタグと、#0列に表示するテキストを設定
             tags = ('disabled_row',) if not is_enabled else ('enabled_row',)
-            check_text = "✅" if is_enabled else "❌" # 絵文字でチェックマークを表示
+            check_text = "✅" if is_enabled else "⬜️" # 絵文字でチェックマークを表示
             
             display_values = (
                 game.get('name', self.lang.get('game_name')),
@@ -951,7 +1177,7 @@ class HzSwitcherApp:
         )
 
         # Row 3: 有効チェック
-        ttk.Checkbutton(editor_frame, text=self.lang.get("enable_monitoring"), variable=enabled_var).grid(row=3, column=0, columnspan=3, **padding, sticky='w') 
+        ttk.Checkbutton(editor_frame, text=self.lang.get("enable_game_monitoring"), variable=enabled_var).grid(row=3, column=0, columnspan=3, **padding, sticky='w') 
         
         def save_and_close():
             APP_LOGGER.debug("Save button pressed in game editor.")
@@ -1358,15 +1584,15 @@ class HzSwitcherApp:
         popup = tk.Toplevel(self.master)
         popup.title(title)
         
+        # 💡 ヘルプボタン（疑問符）を無効にする
+        popup.wm_attributes("-toolwindow", True) 
+        
         common_bg = DARK_BG
         
         # 🚨 修正 1: ウィンドウ作成直後、ウィジェット配置前に非表示にする (フリック防止)
         popup.withdraw()
-
-        if is_error:
-            icon_char = "❌"
-        else:
-            icon_char = "✅"
+        
+        # (アイコン文字の決定ロジックはここで削除されました)
         
         popup.config(bg=common_bg)
         content_frame = ttk.Frame(popup, style='TFrame')
@@ -1377,7 +1603,8 @@ class HzSwitcherApp:
         popup_style.configure('Popup.TButton', background='#404040', foreground=DARK_FG, borderwidth=1, font=COMMON_FONT_NORMAL)
         popup_style.map('Popup.TButton', background=[('active', '#505050')])
 
-        ttk.Label(content_frame, text=f"{icon_char} {message}", padding=10, style='Popup.TLabel').pack(padx=10, pady=10)
+        # 💡 アイコン文字を含めず、メッセージのみを表示
+        ttk.Label(content_frame, text=message, padding=10, style='Popup.TLabel').pack(padx=10, pady=10)
         
         ttk.Button(content_frame, text=self.lang.get("ok"), command=popup.destroy, style='Popup.TButton').pack(pady=5, ipadx=10)
         
@@ -1414,6 +1641,9 @@ class HzSwitcherApp:
         popup = tk.Toplevel(self.master)
         popup.title(title)
         
+        # 💡 [修正 1] ヘルプボタン（タイトルバーの疑問符）を無効にする
+        popup.wm_attributes("-toolwindow", True) 
+        
         common_bg = DARK_BG
         popup.config(bg=common_bg)
         
@@ -1442,7 +1672,9 @@ class HzSwitcherApp:
         content_frame = ttk.Frame(popup, style='TFrame')
         content_frame.pack(padx=20, pady=20)
 
-        ttk.Label(content_frame, text=f"❓ {message}", padding=10, style='CustomPopup.TLabel').pack(padx=10, pady=10)
+        # 💡 [修正 2] メッセージ内の疑問符（❓）を削除
+        # 修正前: ttk.Label(content_frame, text=f"❓ {message}", ...
+        ttk.Label(content_frame, text=message, padding=10, style='CustomPopup.TLabel').pack(padx=10, pady=10)
         
         button_frame = ttk.Frame(content_frame, style='TFrame')
         button_frame.pack(pady=5)
@@ -1998,6 +2230,7 @@ class HzSwitcherApp:
         """
         Treeviewの#0列(チェックボックス)がクリックされたときに、
         有効/無効の状態を切り替えます。
+        (リスト全体を再描画せず、該当項目のみを更新するよう修正)
         """
         
         # 1. クリックされた位置の項目ID (iid=index) を取得
@@ -2034,6 +2267,14 @@ class HzSwitcherApp:
             
             APP_LOGGER.info("Toggling game '%s' enabled state: %s -> %s", game_name, current_state, new_state)
             
+            # 🌟 修正点 1: GUIの表示を直接更新 🌟
+            new_check_text = "✅" if new_state else "⬜️" 
+            new_tags = ('enabled_row',) if new_state else ('disabled_row',)
+            self.game_tree.item(item_id, text=new_check_text, tags=new_tags) # #0列の表示とタグを更新
+            
+            # 🌟 修正点 2: 全再描画の呼び出しを削除 (効率化) 🌟
+            # self._draw_game_list() 
+            
             # 設定を保存
             self.app.settings["games"] = games_list
             try:
@@ -2042,15 +2283,10 @@ class HzSwitcherApp:
             except Exception as e:
                 APP_LOGGER.critical("FATAL: Failed to save game settings after toggle: %s", e)
             
-            # GUIを更新してチェックボックスの表示を反映
-            self._draw_game_list()
-            
             # 💡 ステップ 2 の追加: ゲームの有効/無効が変更されたら、レートを即座に再評価する
             APP_LOGGER.info("Calling rate re-evaluation for game '%s' state change.", game_name)
-            self.app.check_and_apply_rate_based_on_games() # <--- この呼び出しを追加
+            self.app.check_and_apply_rate_based_on_games() 
             
-            # 既存のprint文をAPP_LOGGER.infoに置き換え
-            # print(f"INFO: ゲーム設定 '{games_list[index].get('name', 'Unknown')}' の有効/無効を {new_state} に切り替えました。レートを再評価します。")
             APP_LOGGER.info("Game setting '%s' enabled state toggled to %s. Rate re-evaluation triggered.", game_name, new_state)
         else:
             APP_LOGGER.error("Game list index %d is out of bounds (List size: %d).", index, len(games_list))

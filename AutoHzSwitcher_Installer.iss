@@ -25,7 +25,7 @@ SetupIconFile=.\images\installer.ico
 ; インストール先: Program Files
 DefaultDirName={autopf}\{#AppName}
 DisableProgramGroupPage=yes
-LicenseFile=.\LICENSE
+; LicenseFile=.\LICENSE
 
 PrivilegesRequired=admin
 
@@ -41,14 +41,16 @@ UsedUserAreasWarning=no
 ; -------------------------------------------------------------
 ; ウィザードの言語設定
 ; -------------------------------------------------------------
-Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
-Name: "english"; MessagesFile: "compiler:Default.isl"
-Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimp.isl"
-Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
-Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
-Name: "french"; MessagesFile: "compiler:Languages\French.isl"
-Name: "german"; MessagesFile: "compiler:Languages\German.isl"
-Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
+Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"; LicenseFile: ".\LICENSE_JP.txt"
+Name: "english"; MessagesFile: "compiler:Default.isl"; LicenseFile: ".\LICENSE"
+
+; その他の言語では、一旦英語のEULA (LICENSE) を表示します
+Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimp.isl"; LicenseFile: ".\LICENSE"
+Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"; LicenseFile: ".\LICENSE"
+Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"; LicenseFile: ".\LICENSE"
+Name: "french"; MessagesFile: "compiler:Languages\French.isl"; LicenseFile: ".\LICENSE"
+Name: "german"; MessagesFile: "compiler:Languages\German.isl"; LicenseFile: ".\LICENSE"
+Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"; LicenseFile: ".\LICENSE"
 
 [CustomMessages]
 ; =================================================================
