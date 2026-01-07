@@ -40,8 +40,8 @@ This logic is entirely local and event-driven.
 
 ## Screenshots
 
-![Main settings and per-game refresh rate configuration](App_main_window.png)
-![Runs quietly in the system tray while monitoring processes](tasktray_icon.png)
+![Main settings and per-game refresh rate configuration](images/App_main_window.png)
+![Runs quietly in the system tray while monitoring processes](images/tasktray_icon.png)
 
 ---
 
