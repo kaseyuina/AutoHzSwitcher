@@ -828,7 +828,7 @@ class HzSwitcherApp:
         ttk.Label(global_monitor_frame, text=self.lang.get("idle_low_rate")).grid(row=1, column=2, padx=(5, 5), pady=5, sticky='w')
         self.low_rate_combobox = ttk.Combobox(global_monitor_frame, textvariable=self.default_low_rate, state='readonly', width=10) 
         self.low_rate_combobox.grid(row=1, column=3, padx=(0, 0), pady=5, sticky='w') 
-        self.low_rate_combobox.bind('<<ComboboxSelected>>', self.update_all_rate_dropdowns)
+        self.low_rate_combobox.bind('<<ComboboxSelected>>', self._on_idle_rate_changed_and_enforce)
         ttk.Label(global_monitor_frame, text=self.lang.get("status_hz")).grid(row=1, column=4, padx=(0, 5), pady=5, sticky='w') 
 
         # row 2: 解像度 / グローバル高Hz
@@ -930,6 +930,60 @@ class HzSwitcherApp:
         
         APP_LOGGER.debug("GUI widget creation completed.")
     
+    def _on_idle_rate_changed_and_enforce(self, event=None):
+        """
+        アイドル時レート設定がGUIで変更されたときに呼ばれます。
+        UIを更新・設定を保存した後、監視が無効な場合に限りレートを即座にモニターに適用します。
+        """
+        # 1. 既存のUI更新と設定保存処理を呼び出す
+        # -> update_all_rate_dropdowns の内部で self.save_all_settings() が呼ばれています
+        self.update_all_rate_dropdowns(event) 
+        
+        # 💥 エラー対策: コアアプリケーションインスタンスを取得 💥
+        app = self.app 
+
+        # 2. 設定ファイルに保存された新しいアイドルレートを取得
+        new_rate = app.settings.get("default_low_rate") 
+
+        # 3. 🚨 修正: プロセス監視が無効で、かつ現在のレートが新しいアイドルレートと異なる場合にのみ適用 🚨
+        
+        is_monitoring_enabled = app.settings.get("is_monitoring_enabled", False)
+        
+        if not is_monitoring_enabled and app.current_rate != new_rate:
+            
+            APP_LOGGER.info(
+                "Monitoring is DISABLED. Applying new idle rate (%s Hz) immediately, as it differs from current rate (%s Hz).",
+                new_rate,
+                app.current_rate
+            )
+            
+            try:
+                # コアアプリのレート適用メソッドを呼び出し
+                final_rate = app._enforce_rate(new_rate) 
+                
+                if final_rate is not None:
+                    # コアアプリの内部状態を更新
+                    app.current_rate = final_rate 
+                    
+                    # GUIのステータス表示も更新する
+                    if hasattr(app, '_update_status_display'):
+                        app._update_status_display() 
+                    
+                    APP_LOGGER.info("Successfully applied new idle rate: %d Hz", final_rate)
+                else:
+                    APP_LOGGER.error("Failed to apply new idle rate %s Hz.", new_rate)
+                    
+            except Exception as e:
+                APP_LOGGER.error("Error applying new idle rate immediately: %s", e)
+        
+        elif is_monitoring_enabled:
+            # 監視が有効な場合: 設定は保存済み。レート変更は監視ループに任せる。
+            APP_LOGGER.info("Monitoring is ACTIVE. Idle rate setting saved, but rate change deferred to monitoring loop.")
+        
+        else:
+            # 監視が無効だが、current_rate == new_rate のため、何もしない
+            APP_LOGGER.debug("Monitoring is DISABLED, but new idle rate %s Hz already matches current rate. No change needed.", new_rate)
+
     def _on_game_double_click(self, event):
         """
         ゲーム一覧 (Treeview) でアイテムがダブルクリックされたときに呼び出されます。

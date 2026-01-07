@@ -41,8 +41,8 @@ UsedUserAreasWarning=no
 ; -------------------------------------------------------------
 ; ウィザードの言語設定
 ; -------------------------------------------------------------
-Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"; LicenseFile: ".\LICENSE_JP.txt"
 Name: "english"; MessagesFile: "compiler:Default.isl"; LicenseFile: ".\LICENSE"
+Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"; LicenseFile: ".\LICENSE_JP.txt"
 
 ; その他の言語では、一旦英語のEULA (LICENSE) を表示します
 Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimp.isl"; LicenseFile: ".\LICENSE"
@@ -206,7 +206,7 @@ begin
     // ページ 1: スタートアップ、AppData通知
     // ----------------------------------------------------------
     Page := CreateCustomPage(wpSelectDir, CustomMessage('StartupCheckboxCaption'), SetupMessage(msgSelectComponentsLabel2)); 
-
+    
     // 1. Windowsスタートアップ設定チェックボックス
     StartupCheckbox := TNewCheckBox.Create(Page);
     StartupCheckbox.Parent := Page.Surface;

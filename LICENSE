@@ -44,3 +44,38 @@ ARTICLE 5: SUPPORT AND AMENDMENT OF AGREEMENT
 5.1. The Licensor will endeavor to provide necessary corrective programs (updates) within a reasonable range if major defects in the Software are confirmed, but the response to individual technical inquiries caused by the Licensee's usage environment is limited.
 
 5.2. The Licensor may change this Agreement at any time without prior consent from the Licensee. The revised agreement shall take effect from the time it is posted on the official website or the Gumroad sales page.
+
+=============================================================
+             THIRD-PARTY LICENSE NOTICES
+=============================================================
+
+This Software (Auto Hz Switcher) includes the following third-party component:
+
+Component Name: ResolutionSwitcher.exe
+Copyright Holder: Copyright (C) 2017 m-p-3
+
+ResolutionSwitcher.exe is provided under the MIT License. Licensees may use ResolutionSwitcher.exe in accordance with the following terms:
+
+-------------------------------------------------------------
+MIT License
+-------------------------------------------------------------
+
+Copyright (C) 2017 m-p-3
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

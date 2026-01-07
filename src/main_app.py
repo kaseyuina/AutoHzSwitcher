@@ -1402,14 +1402,14 @@ class MainApplication:
     # main_app.py の MainApp クラスに以下のメソッドを追加
 
     def _stop_monitoring_thread(self):
-        """Stops the monitoring thread and waits for it to terminate."""
+        """Stops the monitoring thread and waits for it to terminate, then resets the display rate."""
         
         # 🚨 DEBUG: 関数開始を記録
         APP_LOGGER.debug("Attempting to stop monitoring thread.")
         
         # 1. スレッド停止とJOIN
         if hasattr(self, 'monitor_thread') and self.monitor_thread and self.monitor_thread.is_alive():
-            # 🚨 修正: print() を APP_LOGGER.info() に置き換え、メッセージを英語化
+            # 🚨 INFO: 処理の意図を記録
             APP_LOGGER.info("Signaling monitoring thread to stop.")
             self.stop_event.set()
             
@@ -1440,17 +1440,28 @@ class MainApplication:
             # 🚨 INFO: スレッドがそもそも動いていなかった場合
             APP_LOGGER.info("Monitoring thread was not running or not found. No action required.")
             
-        # 2. 低レートへの復帰 (外部コマンド実行)
-        # --- 診断用ログ B ---
-        start_time_switch = time.time()
-        #self._switch_rate(self.settings.get("default_low_rate", 60))
-        pass # 実際のレート変更ロジックはコメントアウトされているためpass
-        switch_duration = time.time() - start_time_switch
-        
-        # 🚨 修正: print() を APP_LOGGER.debug() に置き換え
-        APP_LOGGER.debug("Rate Switch operation placeholder completed. Duration: %.2f seconds.", switch_duration)
-        # --------------------
-        
+        # 2. 低レートへの復帰 (外部コマンド実行) 💥 _enforce_rate() を使用 💥
+        try:
+            # 監視ループで使用されているのと同じ方法で低レートを取得。デフォルトを 59 に変更
+            idle_rate = self.settings.get("default_low_rate", 60) 
+            
+            APP_LOGGER.info("Resetting display rate to idle rate (%s Hz).", idle_rate)
+
+            # 実際のレート変更メソッド _enforce_rate() を呼び出す
+            final_rate = self._enforce_rate(idle_rate) 
+
+            if final_rate is not None:
+                # 成功したら、内部期待値を実際のレートで更新
+                self.current_rate = final_rate
+                APP_LOGGER.info("Successfully reset display rate to idle rate. Final rate: %d Hz", final_rate)
+            else:
+                APP_LOGGER.error("Failed to reset display rate to idle rate (%s Hz): _enforce_rate returned None.", idle_rate)
+
+        except AttributeError:
+            APP_LOGGER.error("Failed to reset display rate: '_enforce_rate' method or related attribute missing.")
+        except Exception as e:
+            APP_LOGGER.error("Failed to reset display rate to idle rate (%s Hz): %s", idle_rate, e)
+
         # 🚨 DEBUG: 関数終了を記録
         APP_LOGGER.debug("_stop_monitoring_thread completed.")
 
