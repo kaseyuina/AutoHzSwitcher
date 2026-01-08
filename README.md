@@ -22,8 +22,8 @@ AutoHzSwitcher is a small Windows utility that **automatically switches your mon
 * Monitors running processes
 * Switches to a higher refresh rate while a registered game/app is running
 * Returns to a lower refresh rate when no registered app is active
-* Supports multi-monitor setups
-* No background services, no online dependency
+* Supports multi-monitor setups (refresh rate switching applies to one selected monitor)
+* Fully local, no internet connection required
 
 ---
 
@@ -41,7 +41,16 @@ This logic is entirely local and event-driven.
 ## Screenshots
 
 ![Main settings and per-game refresh rate configuration](images/App_main_window.png)
+_Main window showing per-application refresh rate configuration_
+
+![Showing a list of running processes for selecting a game executable](images/process_screen.png)
+_List of currently running processes used to register a game_
+
+![Game edit window](images/edit_window.png)
+_Edit window for configuring a registered game_
+
 ![Runs quietly in the system tray while monitoring processes](images/tasktray_icon.png)
+_System tray icon indicating active monitoring_
 
 ---
 
@@ -57,7 +66,7 @@ This logic is entirely local and event-driven.
 
 ## Installation
 
-1. Download the installer from the Releases page
+1. Download the installer from the GitHub Releases page
 2. Run the installer
 3. Add games or applications by executable name
 4. Set your preferred high / low refresh rates
