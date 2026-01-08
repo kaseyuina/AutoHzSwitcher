@@ -40,21 +40,29 @@ This logic is entirely local and event-driven.
 
 ## Screenshots
 
-![Main settings and per-game refresh rate configuration](images/App_main_window.png)
+<p align="center">
+  <img src="images/App_main_window.png" alt="Main window" />
+  <br />
+  <em>Main window showing per-application refresh rate configuration</em>
+</p>
 
-_Main window showing per-application refresh rate configuration_
+<p align="center">
+  <img src="images/process_screen.png" alt="Process list" />
+  <br />
+  <em>List of currently running processes used to register a game</em>
+</p>
 
-![Showing a list of running processes for selecting a game executable](images/process_screen.png)
+<p align="center">
+  <img src="images/edit_window.png" alt="Edit window" />
+  <br />
+  <em>Edit window for configuring a registered game</em>
+</p>
 
-_List of currently running processes used to register a game_
-
-![Game edit window](images/edit_window.png)
-
-_Edit window for configuring a registered game_
-
-![Runs quietly in the system tray while monitoring processes](images/tasktray_icon.png)
-
-_System tray icon indicating active monitoring_
+<p align="center">
+  <img src="images/tasktray_icon.png" alt="System tray icon" />
+  <br />
+  <em>System tray icon indicating active monitoring</em>
+</p>
 
 ---
 
