@@ -1,4 +1,4 @@
-# AutoHzSwitcher
+# Auto Hz Switcher
 
 **Automatic refresh rate switching for Windows**
 Run games at high refresh rates, return to low refresh rates automatically when idle.
@@ -12,7 +12,7 @@ If you use a high refresh rate monitor (144Hz / 165Hz / 240Hz), you probably don
 Before gaming, you switch to high Hz.
 After quitting a game… you forget to switch it back.
 
-AutoHzSwitcher is a small Windows utility that **automatically switches your monitor refresh rate based on running applications**, with **zero interaction after setup**.
+Auto Hz Switcher is a small Windows utility that **automatically switches your monitor refresh rate based on running applications**, with **zero interaction after setup**.
 
 ---
 
@@ -29,7 +29,7 @@ AutoHzSwitcher is a small Windows utility that **automatically switches your mon
 
 ## How It Works
 
-1. AutoHzSwitcher runs in the background
+1. Auto Hz Switcher runs in the background
 2. It monitors active processes
 3. When a registered executable starts → refresh rate switches to **High Hz**
 4. When all registered executables stop → refresh rate switches back to **Low Hz**
