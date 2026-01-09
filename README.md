@@ -115,10 +115,13 @@ Third-party components are licensed under their respective licenses.
 
 ---
 
-## Platform
+## Compatibility
 
-* Windows 10 / 11
-* Tested with high refresh rate monitors
+* Windows 11 (tested)
+* Windows 10 (likely supported, but not extensively tested)
+
+This tool relies on standard Windows display APIs, so it is expected to work on Windows 10 as well.
+
 
 ---
 
